@@ -85,9 +85,10 @@ class JobPoller:
         return ContainerSpec(
             image=self._images[job.policy],
             name=f"lerobot-job-{job.id}",
+            # No "python train_entrypoint.py" prefix here: each image's
+            # Dockerfile already sets that as its ENTRYPOINT, so `command`
+            # only needs to be the args appended to it.
             command=[
-                "python",
-                "train_entrypoint.py",
                 "--source-type",
                 job.source_type.value,
                 "--source-ref",
@@ -97,7 +98,12 @@ class JobPoller:
                 "--output-dir",
                 "/workspace/output",
             ],
-            volumes={job_dir: "/workspace"},
+            # Mount only the output subdirectory, not /workspace itself —
+            # mounting the whole thing would shadow the entrypoint script
+            # that's baked into the image at /workspace/train_entrypoint.py.
+            # (DockerRunner pre-creates this host path so it's owned by the
+            # worker's own uid before the container's bind mount touches it.)
+            volumes={f"{job_dir}/output": "/workspace/output"},
             environment={"JOB_ID": job.id},
             labels={"lerobot.job_id": job.id},
             use_gpu=True,

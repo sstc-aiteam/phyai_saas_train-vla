@@ -30,6 +30,12 @@ class DockerClient(ABC):
     def is_running(self, container_id: str) -> bool: ...
 
     @abstractmethod
+    def get_exit_code(self, container_id: str) -> int | None:
+        """Return the container's exit code, or None if it's still running
+        (or unknown/not found)."""
+        ...
+
+    @abstractmethod
     def list_running_container_ids(self) -> list[str]:
         """List ids of all currently-running containers on this host."""
         ...

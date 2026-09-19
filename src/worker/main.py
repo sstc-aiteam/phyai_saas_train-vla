@@ -3,13 +3,15 @@ systemd with `Restart=always`.
 
 Startup sequence: acquire the single-flight lock, sweep stale `.tmp`
 download dirs, reconcile against any containers left running from a
-previous worker process, then poll forever.
+previous worker process, then poll forever. Each tick: `JobPoller` handles
+cancellations and starts the next queued job when the host is idle;
+`JobCompletionMonitor` tracks the currently-active job's progress and,
+once its container exits, packages/uploads the checkpoint (spec 3.7).
 
-NOTE: this loop currently covers queueing, starting, and cancelling jobs
-(`JobPoller`) plus startup reconciliation — it does not yet poll
-`progress.json` for the currently-running container, detect container exit,
-or package/upload the finished checkpoint. Those pieces need the actual
-per-policy training container to exist first; see `docker/*/Dockerfile`.
+NOTE: this loop still doesn't fetch input datasets (HF Hub download into
+the LRU cache, or zip extraction from GCS) into the container's mounted
+volume before starting it — `docker/*/train_entrypoint.py` is a contract
+stub that ignores --source-ref. That's the next gap to close.
 """
 
 from __future__ import annotations
@@ -18,13 +20,16 @@ import logging
 import time
 from pathlib import Path
 
-from google.cloud import firestore
+from google.cloud import firestore, storage
 
 from backend.adapters.firestore.job_repository import FirestoreJobRepository
 from backend.adapters.firestore.user_repository import FirestoreUserRepository
+from backend.adapters.gcs.object_storage import GCSObjectStorage
+from common.models import JobStatus
 from worker.config import WorkerSettings
 from worker.disk_manager import cleanup_stale_tmp_dirs
 from worker.docker_runner import DockerRunner
+from worker.job_completion import JobCompletionMonitor
 from worker.job_poller import JobPoller
 from worker.lock import LockAcquisitionError, WorkerLock
 from worker.orphan_reconciler import reconcile
@@ -54,6 +59,7 @@ def _run(settings: WorkerSettings) -> None:
     job_repository = FirestoreJobRepository(firestore_client)
     user_repository = FirestoreUserRepository(firestore_client)
     docker_client = DockerRunner()
+    object_storage = GCSObjectStorage(storage.Client(), settings.gcs_bucket)
 
     for stale_dir in cleanup_stale_tmp_dirs(Path(settings.hf_cache_dir), settings.tmp_stale_after_seconds):
         logger.info("Removed stale tmp download dir: %s", stale_dir)
@@ -73,12 +79,28 @@ def _run(settings: WorkerSettings) -> None:
         smolvla_image=settings.smolvla_image,
         workdir=settings.workdir,
     )
+    completion_monitor = JobCompletionMonitor(
+        job_repository,
+        docker_client,
+        object_storage,
+        workdir=settings.workdir,
+    )
 
     logger.info("Worker started, polling every %.1fs", settings.poll_interval_seconds)
     while True:
         started_job = poller.tick()
         if started_job is not None:
             logger.info("Started job %s (container=%s)", started_job.id, started_job.container_id)
+
+        monitored_job = completion_monitor.tick()
+        if monitored_job is not None and monitored_job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+            logger.info(
+                "Job %s finished: status=%s error=%s",
+                monitored_job.id,
+                monitored_job.status.value,
+                monitored_job.error_message,
+            )
+
         time.sleep(settings.poll_interval_seconds)
 
 

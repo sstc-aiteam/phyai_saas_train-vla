@@ -12,6 +12,7 @@ class FakeDockerClient(DockerClient):
     def __init__(self) -> None:
         self._id_counter = itertools.count(1)
         self._running: dict[str, ContainerSpec] = {}
+        self._exit_codes: dict[str, int] = {}
         self.killed: list[str] = []
 
     def run(self, spec: ContainerSpec) -> str:
@@ -21,10 +22,20 @@ class FakeDockerClient(DockerClient):
 
     def kill(self, container_id: str) -> None:
         self._running.pop(container_id, None)
+        self._exit_codes.setdefault(container_id, 137)  # typical SIGKILL exit code
         self.killed.append(container_id)
 
     def is_running(self, container_id: str) -> bool:
         return container_id in self._running
+
+    def get_exit_code(self, container_id: str) -> int | None:
+        return self._exit_codes.get(container_id)
+
+    def finish_container(self, container_id: str, exit_code: int = 0) -> None:
+        """Simulate a container that ran to completion on its own (not via
+        kill()), e.g. the training script finished or crashed."""
+        self._running.pop(container_id, None)
+        self._exit_codes[container_id] = exit_code
 
     def list_running_container_ids(self) -> list[str]:
         return list(self._running.keys())
