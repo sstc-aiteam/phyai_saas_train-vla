@@ -1,0 +1,29 @@
+[Unit]
+Description=LeRobot training service worker (GPU host)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=lerobot-worker
+Group=lerobot-worker
+WorkingDirectory=/opt/lerobot-training-service
+EnvironmentFile=/etc/lerobot-worker/worker.env
+ExecStart=/opt/lerobot-training-service/.venv/bin/python -m worker.main
+Restart=always
+RestartSec=5
+# The worker acquires its own single-flight lock (see worker/lock.py) using
+# a plain file, not systemd's own locking — this just makes sure a crashed
+# process always comes back on its own rather than needing manual restart.
+
+NoNewPrivileges=true
+# `lerobot-worker` must be a member of the `docker` group (usual way to
+# reach /var/run/docker.sock without running as root); not using
+# ProtectSystem=strict here since it can interfere with docker socket
+# access depending on distro/docker version, and this hasn't been verified
+# against a real systemd + dockerd on the target host.
+SupplementaryGroups=docker
+
+[Install]
+WantedBy=multi-user.target

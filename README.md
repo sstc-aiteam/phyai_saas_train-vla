@@ -48,6 +48,10 @@ src/
     docker_runner.py    # real docker-py adapter
 docker/
   act/, smolvla/       # one Dockerfile + train_entrypoint.py per policy (see below)
+deploy/
+  lerobot-worker.service  # systemd unit for worker/main.py (Restart=always)
+  gcs-lifecycle.json      # bucket lifecycle rules (orphaned uploads, checkpoint expiry)
+  worker.env.example      # env vars the systemd unit expects
 tests/
   common/              # pure unit tests for the domain rules, no mocks
   backend/             # service-layer + API-layer tests, using in-memory fakes
@@ -113,12 +117,11 @@ Deliberately left out of this pass (see the spec for what they should do):
   `progress.json`/a checkpoint directory on schedule, but doesn't actually
   load the dataset or train a model. Swap in real `lerobot` training code
   without changing the CLI contract the worker depends on.
-- **GCS bucket lifecycle rule** (1-day orphaned-upload cleanup, 7-day
-  signed-URL expiry) is infrastructure config, not application code.
-- No systemd unit file yet for running `worker/main.py` with
-  `Restart=always` (spec section 2).
 - Firestore/GCS/HF/reCAPTCHA adapters are real but unverified against live
   services in this environment (no credentials available here).
+- Cloud Scheduler (spec section 4) isn't provisioned — see
+  [`deploy/README.md`](deploy/README.md) for the one-line `gcloud` command
+  to point it at `/internal/check-timeouts`.
 - Dataset fetching (`dataset_fetcher.py`) runs synchronously inside
   `JobPoller.tick()`, blocking the poll loop for as long as the download
   takes. On a well-connected host this should comfortably fit inside the

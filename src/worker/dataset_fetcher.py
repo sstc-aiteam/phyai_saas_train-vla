@@ -6,7 +6,11 @@ container starts (spec sections 3 and 5).
   convention) and reused by any later job training on the same repo.
 - `zip_upload` jobs: the already-validated zip is downloaded from GCS and
   extracted straight into that job's own (uncached, per-job) input dir —
-  spec section 5 says this gets deleted when the job ends either way.
+  spec section 5 says this gets deleted when the job ends either way. The
+  GCS object itself is deleted right after a successful extraction (it's
+  now fully consumed), which also keeps it well clear of the 1-day
+  orphaned-upload bucket lifecycle rule even if a job sat queued for a
+  while first.
 """
 
 from __future__ import annotations
@@ -78,4 +82,10 @@ class DatasetFetcher:
                     zf.extractall(target_dir)
         except (FileNotFoundError, zipfile.BadZipFile) as exc:
             raise DatasetFetchError(f"Failed to extract uploaded dataset {object_path}: {exc}") from exc
+
+        try:
+            self._storage.delete(object_path)
+        except Exception:
+            pass  # best-effort: the bucket lifecycle rule is the backstop
+
         return target_dir

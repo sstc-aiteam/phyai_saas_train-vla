@@ -99,6 +99,33 @@ def test_extracts_zip_upload_into_job_input_dir(hf_hub, storage, tmp_path):
     assert (result.input_dir / "meta" / "info.json").read_bytes() == b"{}"
 
 
+def test_extracted_zip_upload_object_is_deleted_from_storage(hf_hub, storage, tmp_path):
+    object_path = "uploads/user-1/upload-1.zip"
+    storage.put_bytes(object_path, make_zip_bytes({"meta/info.json": b"{}"}))
+    job = make_job(SourceType.ZIP_UPLOAD, object_path)
+    fetcher = make_fetcher(hf_hub, storage, tmp_path)
+
+    fetcher.fetch_for_job(job, tmp_path / "jobs" / "job-1")
+
+    assert not storage.exists(object_path)
+
+
+def test_zip_upload_delete_failure_does_not_fail_the_fetch(hf_hub, storage, tmp_path, monkeypatch):
+    object_path = "uploads/user-1/upload-1.zip"
+    storage.put_bytes(object_path, make_zip_bytes({"meta/info.json": b"{}"}))
+    job = make_job(SourceType.ZIP_UPLOAD, object_path)
+    fetcher = make_fetcher(hf_hub, storage, tmp_path)
+
+    def boom(_object_path):
+        raise ConnectionError("simulated GCS delete failure")
+
+    monkeypatch.setattr(storage, "delete", boom)
+
+    result = fetcher.fetch_for_job(job, tmp_path / "jobs" / "job-1")
+
+    assert (result.input_dir / "meta" / "info.json").exists()
+
+
 def test_zip_upload_missing_object_raises_fetch_error(hf_hub, storage, tmp_path):
     job = make_job(SourceType.ZIP_UPLOAD, "uploads/user-1/does-not-exist.zip")
     fetcher = make_fetcher(hf_hub, storage, tmp_path)
