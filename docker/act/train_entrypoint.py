@@ -5,7 +5,10 @@ This is a stub: it does NOT actually train an ACT policy (this environment
 has no GPU and no `lerobot` install to verify that against). What it does
 implement for real is the *contract* the worker depends on:
 
-- Read --source-type/--source-ref/--training-steps/--output-dir args.
+- Read --source-type/--source-ref/--training-steps/--input-dir/--output-dir
+  args. --input-dir is where the worker mounted the fetched dataset (see
+  worker/dataset_fetcher.py) — read-only for hf_hub sources, writable for
+  zip_upload sources; this stub only checks it's non-empty.
 - Periodically write `progress.json` into --output-dir with the exact
   shape the worker's `common.domain.heartbeat` / `Progress` model expects:
   {"step": int, "total_steps": int, "loss": float, "timestamp": iso8601}.
@@ -35,8 +38,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-type", required=True, choices=["hf_hub", "zip_upload"])
     parser.add_argument("--source-ref", required=True)
     parser.add_argument("--training-steps", required=True, type=int)
+    parser.add_argument("--input-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     return parser.parse_args()
+
+
+def check_input_dir(input_dir: Path) -> None:
+    if not input_dir.is_dir() or not any(input_dir.iterdir()):
+        raise FileNotFoundError(f"--input-dir is missing or empty: {input_dir}")
 
 
 def write_progress(output_dir: Path, step: int, total_steps: int, loss: float) -> None:
@@ -76,6 +85,7 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    check_input_dir(Path(args.input_dir))
     run_training_loop(output_dir, args.training_steps)
     write_checkpoint(output_dir, args.training_steps)
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from common.ports.hf_hub_client import HFHubClient
 
 
@@ -9,6 +11,7 @@ class FakeHFHubClient(HFHubClient):
 
     def __init__(self) -> None:
         self._repo_files: dict[str, dict[str, bytes]] = {}
+        self.download_calls: list[str] = []
 
     def add_repo(self, repo_id: str, files: dict[str, bytes]) -> None:
         self._repo_files[repo_id] = files
@@ -26,3 +29,13 @@ class FakeHFHubClient(HFHubClient):
         if files is None or path_in_repo not in files:
             raise FileNotFoundError(f"{repo_id}:{path_in_repo}")
         return files[path_in_repo]
+
+    def download_dataset(self, repo_id: str, target_dir: Path) -> None:
+        files = self._repo_files.get(repo_id)
+        if files is None:
+            raise FileNotFoundError(repo_id)
+        self.download_calls.append(repo_id)
+        for path_in_repo, content in files.items():
+            file_path = target_dir / path_in_repo
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_bytes(content)

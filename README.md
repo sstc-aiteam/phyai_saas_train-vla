@@ -35,7 +35,8 @@ src/
     adapters/          # real Firestore / GCS / HF Hub / HF OAuth / reCAPTCHA clients
                         # + in-memory adapters used for local dev (no GCP creds needed)
   worker/              # GPU host process (systemd, Restart=always)
-    job_poller.py      # picks the next queued job, starts its container, tracks daily quota
+    job_poller.py      # picks the next queued job, fetches its dataset, starts its container, tracks daily quota
+    dataset_fetcher.py  # HF Hub download into the LRU cache, or GCS zip extraction, before container start
     job_completion.py  # monitors the active job: progress -> training, exit -> completed/failed
     progress_reader.py    # reads progress.json off the shared volume
     checkpoint_packager.py  # zips a finished checkpoint dir for upload
@@ -58,7 +59,7 @@ tests/
 
 ```bash
 uv sync
-uv run pytest              # 183 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
+uv run pytest              # 203 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
 uv run uvicorn backend.main:app --reload   # local dev server, in-memory adapters by default
 ```
 
@@ -75,9 +76,9 @@ restarts and HF OAuth login always fails (no real IdP to talk to). Set
   services (`auth_service`, `job_service`, `upload_service`,
   `timeout_service`), the API layer (via `TestClient` + dependency
   injection), and all worker orchestration modules (`job_poller`,
-  `job_completion`, `progress_reader`, `checkpoint_packager`,
-  `cancel_watcher`, `orphan_reconciler`, `heartbeat_updater`, `disk_manager`,
-  `lock`).
+  `dataset_fetcher`, `job_completion`, `progress_reader`,
+  `checkpoint_packager`, `cancel_watcher`, `orphan_reconciler`,
+  `heartbeat_updater`, `disk_manager`, `lock`).
 - **Not unit-tested here** (thin translation layers with no business logic
   of their own — would need a Firestore/GCS emulator or a real Docker
   daemon to test meaningfully): `backend/adapters/firestore/*`,
@@ -88,16 +89,19 @@ restarts and HF OAuth login always fails (no real IdP to talk to). Set
   development (`docker build` + `docker run`) to confirm the
   `train_entrypoint.py` contract actually produces `progress.json` and a
   checkpoint directory in the shape the worker expects.
-- The full `JobPoller` -> container -> `JobCompletionMonitor` -> checkpoint
-  upload pipeline was also run end-to-end once against a real `docker`
-  daemon (not just fakes on both sides), using `DockerRunner` for real and
-  fakes only for Firestore/GCS. That run caught three real bugs the unit
-  tests (which only ever exercised `FakeDockerClient`) couldn't have: the
-  `ContainerSpec` command duplicated the image's own `ENTRYPOINT`, its
-  volume mount shadowed `/workspace/train_entrypoint.py` in the image, and
-  containers ran as root, leaving files the (non-root) worker process
-  couldn't later package or delete. All three are fixed in
-  `job_poller.py`/`docker_runner.py` — see git history for details.
+- The full `JobPoller` -> `DatasetFetcher` -> container -> `JobCompletionMonitor`
+  -> checkpoint upload pipeline was also run end-to-end against a real
+  `docker` daemon for both source types (`hf_hub` and `zip_upload`), using
+  `DockerRunner` for real and fakes only for Firestore/HF-Hub-API/GCS. That
+  first run (before dataset fetching existed) caught three real bugs unit
+  tests alone couldn't have: the `ContainerSpec` command duplicated the
+  image's own `ENTRYPOINT`, its volume mount shadowed
+  `/workspace/train_entrypoint.py` in the image, and containers ran as
+  root, leaving files the (non-root) worker process couldn't later package
+  or delete. All three are fixed in `job_poller.py`/`docker_runner.py` —
+  see git history for details. (This sandbox has no GPU driver, so that
+  check ran with `use_gpu=False` monkeypatched in for the test only —
+  production `job_poller.py` still hardcodes `use_gpu=True`.)
 
 ## Scope and known gaps
 
@@ -105,18 +109,19 @@ Deliberately left out of this pass (see the spec for what they should do):
 
 - **React frontend** — not built.
 - **Real ACT/SmolVLA training** — `docker/*/train_entrypoint.py` is a
-  contract stub: it writes `progress.json` and a checkpoint directory on
-  schedule, but doesn't load a dataset or train a model. Swap in real
-  `lerobot` training code without changing the CLI contract the worker
-  depends on.
-- **Dataset fetching into the container's mounted volume** — the worker
-  starts each training container but doesn't yet download the HF Hub
-  dataset (into the LRU cache from `disk_manager.py`) or extract the
-  uploaded zip from GCS into it first; `train_entrypoint.py` currently
-  ignores `--source-ref` entirely. This is the next gap to close.
+  contract stub: it checks `--input-dir` is populated and writes
+  `progress.json`/a checkpoint directory on schedule, but doesn't actually
+  load the dataset or train a model. Swap in real `lerobot` training code
+  without changing the CLI contract the worker depends on.
 - **GCS bucket lifecycle rule** (1-day orphaned-upload cleanup, 7-day
   signed-URL expiry) is infrastructure config, not application code.
 - No systemd unit file yet for running `worker/main.py` with
   `Restart=always` (spec section 2).
 - Firestore/GCS/HF/reCAPTCHA adapters are real but unverified against live
   services in this environment (no credentials available here).
+- Dataset fetching (`dataset_fetcher.py`) runs synchronously inside
+  `JobPoller.tick()`, blocking the poll loop for as long as the download
+  takes. On a well-connected host this should comfortably fit inside the
+  5-minute `initializing` timeout for the spec's 2GB dataset cap, but
+  nothing currently refreshes the heartbeat *during* a long download —
+  worth watching if real-world fetches turn out slower than expected.

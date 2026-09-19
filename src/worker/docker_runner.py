@@ -26,11 +26,15 @@ class DockerRunner(DockerClient):
             Path(host_path).mkdir(parents=True, exist_ok=True)
 
         device_requests = [DeviceRequest(count=-1, capabilities=[["gpu"]])] if spec.use_gpu else None
+        volumes = {
+            host: {"bind": container_path, "mode": "ro" if host in spec.read_only_paths else "rw"}
+            for host, container_path in spec.volumes.items()
+        }
         container = self._client.containers.run(
             spec.image,
             command=spec.command,
             name=spec.name,
-            volumes={host: {"bind": container_path, "mode": "rw"} for host, container_path in spec.volumes.items()},
+            volumes=volumes,
             environment=spec.environment,
             labels=spec.labels,
             device_requests=device_requests,

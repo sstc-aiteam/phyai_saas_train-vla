@@ -15,6 +15,9 @@ class ContainerSpec:
     environment: dict[str, str]
     labels: dict[str, str]
     use_gpu: bool = True
+    # host paths (must be keys of `volumes`) to mount read-only — e.g. the
+    # shared HF dataset cache, which no training container should mutate.
+    read_only_paths: frozenset[str] = frozenset()
 
 
 class DockerClient(ABC):

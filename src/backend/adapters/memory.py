@@ -114,6 +114,9 @@ class InMemoryHFHubClient(HFHubClient):
     def get_repo_file_bytes(self, repo_id: str, path_in_repo: str) -> bytes:
         raise FileNotFoundError(f"{repo_id}:{path_in_repo}")
 
+    def download_dataset(self, repo_id: str, target_dir) -> None:
+        raise FileNotFoundError(repo_id)
+
 
 class InMemoryCaptchaVerifier(CaptchaVerifier):
     """Always succeeds — local dev has no reCAPTCHA site key configured."""

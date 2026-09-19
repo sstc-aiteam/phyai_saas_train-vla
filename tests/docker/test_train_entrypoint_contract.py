@@ -55,7 +55,29 @@ def test_run_training_loop_writes_final_progress_at_total_steps(tmp_path, entryp
     assert progress["total_steps"] == 10
 
 
+def test_check_input_dir_raises_when_missing(tmp_path, entrypoint):
+    with pytest.raises(FileNotFoundError):
+        entrypoint.check_input_dir(tmp_path / "does-not-exist")
+
+
+def test_check_input_dir_raises_when_empty(tmp_path, entrypoint):
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    with pytest.raises(FileNotFoundError):
+        entrypoint.check_input_dir(empty_dir)
+
+
+def test_check_input_dir_passes_when_populated(tmp_path, entrypoint):
+    populated_dir = tmp_path / "populated"
+    populated_dir.mkdir()
+    (populated_dir / "meta.json").write_text("{}")
+    entrypoint.check_input_dir(populated_dir)  # should not raise
+
+
 def test_main_end_to_end_produces_progress_and_checkpoint(tmp_path, entrypoint, monkeypatch):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "meta.json").write_text("{}")
     output_dir = tmp_path / "output"
     monkeypatch.setattr(
         "sys.argv",
@@ -67,6 +89,8 @@ def test_main_end_to_end_produces_progress_and_checkpoint(tmp_path, entrypoint, 
             "org/dataset",
             "--training-steps",
             "5",
+            "--input-dir",
+            str(input_dir),
             "--output-dir",
             str(output_dir),
         ],
@@ -76,3 +100,28 @@ def test_main_end_to_end_produces_progress_and_checkpoint(tmp_path, entrypoint, 
 
     assert (output_dir / "progress.json").exists()
     assert (output_dir / "checkpoint" / "config.json").exists()
+
+
+def test_main_raises_when_input_dir_empty(tmp_path, entrypoint, monkeypatch):
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()  # empty
+    output_dir = tmp_path / "output"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "train_entrypoint.py",
+            "--source-type",
+            "hf_hub",
+            "--source-ref",
+            "org/dataset",
+            "--training-steps",
+            "5",
+            "--input-dir",
+            str(input_dir),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    with pytest.raises(FileNotFoundError):
+        entrypoint.main()

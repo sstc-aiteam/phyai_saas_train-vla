@@ -24,8 +24,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-type", required=True, choices=["hf_hub", "zip_upload"])
     parser.add_argument("--source-ref", required=True)
     parser.add_argument("--training-steps", required=True, type=int)
+    parser.add_argument("--input-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     return parser.parse_args()
+
+
+def check_input_dir(input_dir: Path) -> None:
+    if not input_dir.is_dir() or not any(input_dir.iterdir()):
+        raise FileNotFoundError(f"--input-dir is missing or empty: {input_dir}")
 
 
 def write_progress(output_dir: Path, step: int, total_steps: int, loss: float) -> None:
@@ -65,6 +71,7 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    check_input_dir(Path(args.input_dir))
     run_training_loop(output_dir, args.training_steps)
     write_checkpoint(output_dir, args.training_steps)
 

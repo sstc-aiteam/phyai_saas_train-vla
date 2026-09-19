@@ -3,15 +3,15 @@ systemd with `Restart=always`.
 
 Startup sequence: acquire the single-flight lock, sweep stale `.tmp`
 download dirs, reconcile against any containers left running from a
-previous worker process, then poll forever. Each tick: `JobPoller` handles
-cancellations and starts the next queued job when the host is idle;
-`JobCompletionMonitor` tracks the currently-active job's progress and,
-once its container exits, packages/uploads the checkpoint (spec 3.7).
+previous worker process, then poll forever. Each tick: `JobPoller` fetches
+the next queued job's dataset (into the shared HF cache, or by extracting
+its uploaded zip) and starts its container; `JobCompletionMonitor` tracks
+the currently-active job's progress and, once its container exits,
+packages/uploads the checkpoint (spec 3.7).
 
-NOTE: this loop still doesn't fetch input datasets (HF Hub download into
-the LRU cache, or zip extraction from GCS) into the container's mounted
-volume before starting it — `docker/*/train_entrypoint.py` is a contract
-stub that ignores --source-ref. That's the next gap to close.
+NOTE: `docker/*/train_entrypoint.py` is still a contract stub — it now
+receives --input-dir pointing at the fetched dataset, but doesn't load or
+train on it yet.
 """
 
 from __future__ import annotations
@@ -25,8 +25,10 @@ from google.cloud import firestore, storage
 from backend.adapters.firestore.job_repository import FirestoreJobRepository
 from backend.adapters.firestore.user_repository import FirestoreUserRepository
 from backend.adapters.gcs.object_storage import GCSObjectStorage
+from backend.adapters.hf.hf_hub_client import RealHFHubClient
 from common.models import JobStatus
 from worker.config import WorkerSettings
+from worker.dataset_fetcher import DatasetFetcher
 from worker.disk_manager import cleanup_stale_tmp_dirs
 from worker.docker_runner import DockerRunner
 from worker.job_completion import JobCompletionMonitor
@@ -60,6 +62,12 @@ def _run(settings: WorkerSettings) -> None:
     user_repository = FirestoreUserRepository(firestore_client)
     docker_client = DockerRunner()
     object_storage = GCSObjectStorage(storage.Client(), settings.gcs_bucket)
+    dataset_fetcher = DatasetFetcher(
+        RealHFHubClient(),
+        object_storage,
+        cache_dir=settings.hf_cache_dir,
+        cache_max_bytes=settings.hf_cache_max_bytes,
+    )
 
     for stale_dir in cleanup_stale_tmp_dirs(Path(settings.hf_cache_dir), settings.tmp_stale_after_seconds):
         logger.info("Removed stale tmp download dir: %s", stale_dir)
@@ -75,6 +83,7 @@ def _run(settings: WorkerSettings) -> None:
         job_repository,
         user_repository,
         docker_client,
+        dataset_fetcher,
         act_image=settings.act_image,
         smolvla_image=settings.smolvla_image,
         workdir=settings.workdir,

@@ -1,9 +1,12 @@
 """Real Hugging Face Hub client: checks a public dataset repo's structure
-via the Hub API without downloading the dataset (spec section 3)."""
+via the Hub API without downloading the dataset (spec section 3), and
+downloads the full dataset on demand for the worker (spec section 5)."""
 
 from __future__ import annotations
 
-from huggingface_hub import HfApi, hf_hub_download
+from pathlib import Path
+
+from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 from huggingface_hub.utils import EntryNotFoundError, RepositoryNotFoundError
 
 from common.ports.hf_hub_client import HFHubClient
@@ -29,3 +32,9 @@ class RealHFHubClient(HFHubClient):
             raise FileNotFoundError(f"{repo_id}:{path_in_repo}") from exc
         with open(local_path, "rb") as f:
             return f.read()
+
+    def download_dataset(self, repo_id: str, target_dir: Path) -> None:
+        try:
+            snapshot_download(repo_id=repo_id, repo_type="dataset", local_dir=str(target_dir))
+        except RepositoryNotFoundError as exc:
+            raise FileNotFoundError(repo_id) from exc
