@@ -46,6 +46,7 @@ class JobPoller:
         act_image: str,
         smolvla_image: str,
         workdir: str,
+        use_gpu: bool = True,
         now_fn=utcnow,
     ) -> None:
         self._jobs = job_repository
@@ -54,6 +55,7 @@ class JobPoller:
         self._dataset_fetcher = dataset_fetcher
         self._images = {PolicyType.ACT: act_image, PolicyType.SMOLVLA: smolvla_image}
         self._workdir = workdir
+        self._use_gpu = use_gpu
         self._now = now_fn
 
     def tick(self) -> Job | None:
@@ -141,5 +143,5 @@ class JobPoller:
             read_only_paths=read_only_paths,
             environment={"JOB_ID": job.id},
             labels={"lerobot.job_id": job.id},
-            use_gpu=True,
+            use_gpu=self._use_gpu,
         )

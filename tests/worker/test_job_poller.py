@@ -109,6 +109,33 @@ def test_tick_uses_the_right_image_per_policy(poller, job_repo, docker):
     assert spec.image == "smolvla-image:latest"
 
 
+def test_use_gpu_defaults_to_true(poller, job_repo, docker):
+    make_job(job_repo)
+
+    started = poller.tick()
+
+    assert docker.get_spec(started.container_id).use_gpu is True
+
+
+def test_use_gpu_can_be_disabled(job_repo, user_repo, docker, dataset_fetcher, tmp_path):
+    poller = JobPoller(
+        job_repo,
+        user_repo,
+        docker,
+        dataset_fetcher,
+        act_image="act-image:latest",
+        smolvla_image="smolvla-image:latest",
+        workdir=str(tmp_path / "jobs"),
+        use_gpu=False,
+        now_fn=lambda: NOW,
+    )
+    make_job(job_repo)
+
+    started = poller.tick()
+
+    assert docker.get_spec(started.container_id).use_gpu is False
+
+
 def test_container_spec_mounts_input_and_output_and_passes_input_dir_flag(poller, job_repo, docker):
     make_job(job_repo)
 

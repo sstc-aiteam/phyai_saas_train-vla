@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     hf_oauth_client_id: str = ""
     hf_oauth_client_secret: str = ""
     use_fake_adapters: bool = True  # flip to False once GCP/HF credentials are configured
+    # Only used when use_fake_adapters is true: where InMemoryObjectStorage's
+    # dev-storage URLs should point back to. Override if serving on a
+    # different host/port than the plain `uvicorn` default.
+    dev_storage_base_url: str = "http://localhost:8000"
 
 
 def get_settings() -> Settings:

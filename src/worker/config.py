@@ -15,3 +15,11 @@ class WorkerSettings(BaseSettings):
     act_image: str = "lerobot-train-act:latest"
     smolvla_image: str = "lerobot-train-smolvla:latest"
     gcs_bucket: str = "lerobot-training-service-dev"
+    # Safe-by-default opposite of backend Settings.use_fake_adapters: a
+    # deployed worker touches real Docker + a real GPU, so accidentally
+    # running it in fake mode should require an explicit opt-in, not be
+    # the default the way it is for a quick local `uvicorn` smoke test.
+    use_fake_adapters: bool = False
+    # Real deployments always train on the GPU; only manual/local testing
+    # on a machine without one needs to turn this off.
+    use_gpu: bool = True

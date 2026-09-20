@@ -29,12 +29,14 @@ src/
       policy_shapes.py        # observation/action shape vs selected policy
       limits.py                # training-step cap
   backend/             # FastAPI app
-    api/               # thin HTTP routers
+    api/               # thin HTTP routers (+ dev_storage.py, dev-mode only)
     services/          # use-case layer: orchestrates ports + domain rules
     security/          # password hashing, JWT
+    deps.py             # chooses real-vs-fake adapters per Settings.use_fake_adapters
     adapters/          # real Firestore / GCS / HF Hub / HF OAuth / reCAPTCHA clients
                         # + in-memory adapters used for local dev (no GCP creds needed)
   worker/              # GPU host process (systemd, Restart=always)
+    deps.py             # chooses real-vs-fake adapters per WorkerSettings.use_fake_adapters
     job_poller.py      # picks the next queued job, fetches its dataset, starts its container, tracks daily quota
     dataset_fetcher.py  # HF Hub download into the LRU cache, or GCS zip extraction, before container start
     job_completion.py  # monitors the active job: progress -> training, exit -> completed/failed
@@ -52,6 +54,10 @@ deploy/
   lerobot-worker.service  # systemd unit for worker/main.py (Restart=always)
   gcs-lifecycle.json      # bucket lifecycle rules (orphaned uploads, checkpoint expiry)
   worker.env.example      # env vars the systemd unit expects
+scripts/
+  manual_test.py            # runs backend + worker in one process against shared in-memory
+                             # state + real Docker, for manual curl-based end-to-end testing
+  make_demo_dataset_zip.py  # writes a validly-shaped demo dataset zip for the upload path
 tests/
   common/              # pure unit tests for the domain rules, no mocks
   backend/             # service-layer + API-layer tests, using in-memory fakes
@@ -63,7 +69,7 @@ tests/
 
 ```bash
 uv sync
-uv run pytest              # 203 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
+uv run pytest              # 220 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
 uv run uvicorn backend.main:app --reload   # local dev server, in-memory adapters by default
 ```
 
@@ -72,7 +78,28 @@ in-memory storage (`backend/adapters/memory.py`) — good for local dev and
 for the "does the app assemble" smoke test, but data doesn't persist across
 restarts and HF OAuth login always fails (no real IdP to talk to). Set
 `LEROBOT_USE_FAKE_ADAPTERS=false` plus the GCP/HF/reCAPTCHA env vars (see
-`backend/config.py`) to run against real infrastructure.
+`backend/config.py`) to run against real infrastructure. `WorkerSettings`
+has the same `use_fake_adapters` toggle (default `False` — a real worker
+touching real Docker/GPU should never silently fall back to fake mode).
+
+### Manual end-to-end testing (no GCP required)
+
+Running the backend and worker as two separate processes only actually
+connects them once both point at a real Firestore project + GCS bucket —
+their fake/in-memory modes are each self-contained and don't talk to each
+other. `scripts/manual_test.py` sidesteps this for manual testing by
+running both as threads *in one process*, sharing the same in-memory
+job/user/dataset store, with a real Docker daemon underneath:
+
+```bash
+uv run python scripts/manual_test.py          # builds the two demo images, then serves on :8765
+```
+
+It prints a `curl` walkthrough covering both dataset paths (a seeded fake
+HF Hub repo, and a real zip upload via `scripts/make_demo_dataset_zip.py`
++ a local dev-storage stand-in for GCS at `/dev-storage/...`). Verified
+manually: both paths go all the way through `queued → initializing →
+training → completed` and produce a real, downloadable checkpoint zip.
 
 ## What's genuinely tested vs. what's a thin wire-up
 
@@ -94,18 +121,19 @@ restarts and HF OAuth login always fails (no real IdP to talk to). Set
   `train_entrypoint.py` contract actually produces `progress.json` and a
   checkpoint directory in the shape the worker expects.
 - The full `JobPoller` -> `DatasetFetcher` -> container -> `JobCompletionMonitor`
-  -> checkpoint upload pipeline was also run end-to-end against a real
-  `docker` daemon for both source types (`hf_hub` and `zip_upload`), using
-  `DockerRunner` for real and fakes only for Firestore/HF-Hub-API/GCS. That
-  first run (before dataset fetching existed) caught three real bugs unit
-  tests alone couldn't have: the `ContainerSpec` command duplicated the
-  image's own `ENTRYPOINT`, its volume mount shadowed
-  `/workspace/train_entrypoint.py` in the image, and containers ran as
-  root, leaving files the (non-root) worker process couldn't later package
-  or delete. All three are fixed in `job_poller.py`/`docker_runner.py` —
-  see git history for details. (This sandbox has no GPU driver, so that
-  check ran with `use_gpu=False` monkeypatched in for the test only —
-  production `job_poller.py` still hardcodes `use_gpu=True`.)
+  -> checkpoint upload pipeline was run end-to-end against a real `docker`
+  daemon for both source types (`hf_hub` and `zip_upload`), using
+  `DockerRunner` for real and fakes only for Firestore/HF-Hub-API/GCS —
+  first as a throwaway script (which caught three real bugs unit tests
+  alone couldn't have: the `ContainerSpec` command duplicated the image's
+  own `ENTRYPOINT`, its volume mount shadowed `/workspace/train_entrypoint.py`
+  in the image, and containers ran as root, leaving files the non-root
+  worker process couldn't later package or delete — all fixed, see git
+  history), then again through the full HTTP API via `scripts/manual_test.py`
+  and `curl` (register → login → submit job → poll → download), for both
+  dataset paths. This sandbox has no GPU driver, so both runs used
+  `use_gpu=False` (now a proper `JobPoller`/`WorkerSettings` option, not a
+  monkeypatch) — production still defaults to `use_gpu=True`.
 
 ## Scope and known gaps
 

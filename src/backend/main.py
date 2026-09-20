@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from backend.api import auth, internal, jobs, uploads
+from backend.adapters.memory import InMemoryObjectStorage
+from backend.api import auth, dev_storage, internal, jobs, uploads
 from backend.config import Settings, get_settings
 from backend.deps import Dependencies, build_dependencies
 from backend.security.jwt_tokens import InvalidTokenError
@@ -53,7 +54,6 @@ def _build_default_dependencies(settings: Settings) -> Dependencies:
             InMemoryHFHubClient,
             InMemoryHFOAuthClient,
             InMemoryJobRepository,
-            InMemoryObjectStorage,
             InMemoryUserRepository,
         )
 
@@ -61,7 +61,7 @@ def _build_default_dependencies(settings: Settings) -> Dependencies:
             settings,
             user_repository=InMemoryUserRepository(),
             job_repository=InMemoryJobRepository(),
-            storage=InMemoryObjectStorage(),
+            storage=InMemoryObjectStorage(base_url=settings.dev_storage_base_url),
             hf_hub_client=InMemoryHFHubClient(),
             captcha_verifier=InMemoryCaptchaVerifier(),
             hf_oauth_client=InMemoryHFOAuthClient(),
@@ -97,6 +97,8 @@ def build_app(settings: Settings | None = None, deps: Dependencies | None = None
     app.include_router(uploads.router)
     app.include_router(jobs.router)
     app.include_router(internal.router)
+    if isinstance(app.state.deps.storage, InMemoryObjectStorage):
+        app.include_router(dev_storage.router)
 
     for exc_type, status_code in _EXCEPTION_STATUS_CODES.items():
         app.add_exception_handler(

@@ -20,19 +20,10 @@ import logging
 import time
 from pathlib import Path
 
-from google.cloud import firestore, storage
-
-from backend.adapters.firestore.job_repository import FirestoreJobRepository
-from backend.adapters.firestore.user_repository import FirestoreUserRepository
-from backend.adapters.gcs.object_storage import GCSObjectStorage
-from backend.adapters.hf.hf_hub_client import RealHFHubClient
 from common.models import JobStatus
 from worker.config import WorkerSettings
-from worker.dataset_fetcher import DatasetFetcher
+from worker.deps import WorkerDependencies, build_default_worker_dependencies
 from worker.disk_manager import cleanup_stale_tmp_dirs
-from worker.docker_runner import DockerRunner
-from worker.job_completion import JobCompletionMonitor
-from worker.job_poller import JobPoller
 from worker.lock import LockAcquisitionError, WorkerLock
 from worker.orphan_reconciler import reconcile
 
@@ -51,66 +42,46 @@ def main() -> None:
         raise SystemExit(1)
 
     try:
-        _run(settings)
+        deps = build_default_worker_dependencies(settings)
+        run_forever(settings, deps)
     finally:
         lock.release()
 
 
-def _run(settings: WorkerSettings) -> None:
-    firestore_client = firestore.Client()
-    job_repository = FirestoreJobRepository(firestore_client)
-    user_repository = FirestoreUserRepository(firestore_client)
-    docker_client = DockerRunner()
-    object_storage = GCSObjectStorage(storage.Client(), settings.gcs_bucket)
-    dataset_fetcher = DatasetFetcher(
-        RealHFHubClient(),
-        object_storage,
-        cache_dir=settings.hf_cache_dir,
-        cache_max_bytes=settings.hf_cache_max_bytes,
-    )
-
+def run_forever(settings: WorkerSettings, deps: WorkerDependencies) -> None:
+    """The worker's poll loop, factored out from `main()` so a manual-test
+    harness can build its own `WorkerDependencies` (sharing adapter
+    instances with a backend process) and drive this same loop without
+    going through `main()`'s real-Firestore/GCS wiring or its own lock."""
     for stale_dir in cleanup_stale_tmp_dirs(Path(settings.hf_cache_dir), settings.tmp_stale_after_seconds):
         logger.info("Removed stale tmp download dir: %s", stale_dir)
 
-    reconciliation = reconcile(docker_client, job_repository)
+    reconciliation = reconcile(deps.docker_client, deps.job_repository)
     logger.info(
         "Startup reconciliation: resumed=%s killed_orphans=%s",
         [job.id for job in reconciliation.resumed_jobs],
         reconciliation.killed_orphan_container_ids,
     )
 
-    poller = JobPoller(
-        job_repository,
-        user_repository,
-        docker_client,
-        dataset_fetcher,
-        act_image=settings.act_image,
-        smolvla_image=settings.smolvla_image,
-        workdir=settings.workdir,
-    )
-    completion_monitor = JobCompletionMonitor(
-        job_repository,
-        docker_client,
-        object_storage,
-        workdir=settings.workdir,
-    )
-
     logger.info("Worker started, polling every %.1fs", settings.poll_interval_seconds)
     while True:
-        started_job = poller.tick()
-        if started_job is not None:
-            logger.info("Started job %s (container=%s)", started_job.id, started_job.container_id)
-
-        monitored_job = completion_monitor.tick()
-        if monitored_job is not None and monitored_job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
-            logger.info(
-                "Job %s finished: status=%s error=%s",
-                monitored_job.id,
-                monitored_job.status.value,
-                monitored_job.error_message,
-            )
-
+        tick(deps)
         time.sleep(settings.poll_interval_seconds)
+
+
+def tick(deps: WorkerDependencies) -> None:
+    started_job = deps.poller.tick()
+    if started_job is not None:
+        logger.info("Started job %s (container=%s)", started_job.id, started_job.container_id)
+
+    monitored_job = deps.completion_monitor.tick()
+    if monitored_job is not None and monitored_job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+        logger.info(
+            "Job %s finished: status=%s error=%s",
+            monitored_job.id,
+            monitored_job.status.value,
+            monitored_job.error_message,
+        )
 
 
 if __name__ == "__main__":
