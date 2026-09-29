@@ -40,6 +40,44 @@ checkpoint) and does not clean up after itself — see the script's own
 printed reminder, or delete the `users`/`jobs` docs and any
 `checkpoints/`/`uploads/` objects by hand afterward.
 
+## Backend (Cloud Run)
+
+The root `Dockerfile` packages `backend.main:app` (multi-stage, `uv sync
+--frozen --no-dev`, runs as a non-root user, listens on `$PORT` per Cloud
+Run's convention). Built and run locally against both fake and real
+adapters to confirm it boots and — with the real service account key
+mounted in — correctly reaches real Firestore (through the composite
+indexes) and GCS from inside the container.
+
+Deploying it is intentionally **not** done with the app's own runtime
+service account: that account only has `roles/datastore.user` +
+`roles/storage.objectAdmin` (what the *running* app needs), not
+Cloud Build/Artifact Registry/Cloud Run admin rights (what *deploying* it
+needs) — keep those separate. Run this yourself with your own
+(more-privileged) `gcloud` session:
+
+```bash
+gcloud run deploy lerobot-backend \
+  --source . \
+  --region YOUR_REGION \
+  --project YOUR_PROJECT_ID \
+  --service-account YOUR_APP_SERVICE_ACCOUNT_EMAIL \
+  --allow-unauthenticated \
+  --set-env-vars LEROBOT_USE_FAKE_ADAPTERS=false,LEROBOT_GCP_PROJECT_ID=YOUR_PROJECT_ID,LEROBOT_FIRESTORE_DATABASE_ID=YOUR_DATABASE_ID,LEROBOT_GCS_BUCKET=YOUR_BUCKET_NAME
+```
+
+`--source .` has Cloud Build build the `Dockerfile` remotely — no local
+`docker push` needed. `--allow-unauthenticated` matches the spec's "public
+service" positioning (section 1); tighten it if that changes.
+`LEROBOT_JWT_SECRET`/`LEROBOT_SCHEDULER_SHARED_SECRET`/
+`LEROBOT_RECAPTCHA_SECRET_KEY`/`LEROBOT_HF_OAUTH_CLIENT_SECRET` are left out
+of the example above on purpose — use `--set-secrets` with Secret Manager
+for those rather than plain `--set-env-vars`, since they're credentials,
+not config. No IAM binding is needed for the running service to reach
+Firestore/GCS beyond what's already on `YOUR_APP_SERVICE_ACCOUNT_EMAIL`
+(see "Firestore setup" above) — Cloud Run just runs the container *as*
+that service account.
+
 ## Worker host (systemd)
 
 1. Copy `worker.env.example` to `/etc/lerobot-worker/worker.env`, fill in real

@@ -17,6 +17,8 @@ sits behind an interface in `src/common/ports/`, with a real adapter and a
 test fake for each.
 
 ```
+Dockerfile              # packages backend.main:app for Cloud Run (spec section 2)
+.dockerignore
 src/
   common/
     models.py         # User, Job, JobStatus, PolicyType, SourceType, Progress
@@ -173,6 +175,14 @@ reminder.
   uploaded to and downloaded back from `storage.googleapis.com` all
   worked; test data was cleaned up manually afterward (nothing here does
   that automatically — see the script's own printed reminder).
+- The root `Dockerfile` (packages the backend for Cloud Run) was built and
+  run locally against both fake and real adapters — the latter with the
+  real service account key mounted in, confirming `/internal/check-timeouts`
+  reaches real Firestore (through the composite indexes) from inside the
+  container exactly as it would on Cloud Run. Not actually deployed to
+  Cloud Run itself: that needs a `gcloud` session with deploy-time rights
+  the app's own least-privilege runtime service account intentionally
+  doesn't have — see `deploy/README.md`.
 
 ## Scope and known gaps
 
