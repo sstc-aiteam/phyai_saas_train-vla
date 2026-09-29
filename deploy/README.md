@@ -78,6 +78,17 @@ Firestore/GCS beyond what's already on `YOUR_APP_SERVICE_ACCOUNT_EMAIL`
 (see "Firestore setup" above) — Cloud Run just runs the container *as*
 that service account.
 
+**Deployed status**: live at `https://lerobot-backend-526282644766.us-central1.run.app`
+(project `sstc-aiteam`, region `us-central1`). `LEROBOT_JWT_SECRET` and
+`LEROBOT_SCHEDULER_SHARED_SECRET` are set to real random values (no longer
+the insecure defaults) — but currently via plain `--set-env-vars`, not
+Secret Manager, per the advice above.
+
+**TODO**: move `LEROBOT_JWT_SECRET`/`LEROBOT_SCHEDULER_SHARED_SECRET` off
+plain env vars and into Secret Manager (`--set-secrets` instead of
+`--update-env-vars`), and set `LEROBOT_RECAPTCHA_SECRET_KEY` the same way
+once a real reCAPTCHA v3 site key exists to pair it with.
+
 ## Worker host (systemd)
 
 1. Copy `worker.env.example` to `/etc/lerobot-worker/worker.env`, fill in real
