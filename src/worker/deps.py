@@ -107,13 +107,13 @@ def build_default_worker_dependencies(settings: WorkerSettings) -> WorkerDepende
     from backend.adapters.gcs.object_storage import GCSObjectStorage
     from backend.adapters.hf.hf_hub_client import RealHFHubClient
 
-    firestore_client = firestore.Client()
+    firestore_client = firestore.Client(project=settings.gcp_project_id, database=settings.firestore_database_id)
     return build_worker_dependencies(
         settings,
         job_repository=FirestoreJobRepository(firestore_client),
         user_repository=FirestoreUserRepository(firestore_client),
         docker_client=_docker_client_for(settings),
-        object_storage=GCSObjectStorage(storage.Client(), settings.gcs_bucket),
+        object_storage=GCSObjectStorage(storage.Client(project=settings.gcp_project_id), settings.gcs_bucket),
         hf_hub_client=RealHFHubClient(),
     )
 

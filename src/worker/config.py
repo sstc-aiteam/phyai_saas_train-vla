@@ -15,6 +15,10 @@ class WorkerSettings(BaseSettings):
     act_image: str = "lerobot-train-act:latest"
     smolvla_image: str = "lerobot-train-smolvla:latest"
     gcs_bucket: str = "lerobot-training-service-dev"
+    # Firestore supports multiple named databases per project; "(default)"
+    # is the literal name of the one auto-created if you never name one.
+    firestore_database_id: str = "(default)"
+    gcp_project_id: str | None = None  # None lets the client library infer it (e.g. from ADC)
     # Safe-by-default opposite of backend Settings.use_fake_adapters: a
     # deployed worker touches real Docker + a real GPU, so accidentally
     # running it in fake mode should require an explicit opt-in, not be

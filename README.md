@@ -53,10 +53,12 @@ docker/
 deploy/
   lerobot-worker.service  # systemd unit for worker/main.py (Restart=always)
   gcs-lifecycle.json      # bucket lifecycle rules (orphaned uploads, checkpoint expiry)
+  firestore.indexes.json  # composite indexes FirestoreJobRepository's queries need
   worker.env.example      # env vars the systemd unit expects
 scripts/
   manual_test.py            # runs backend + worker in one process against shared in-memory
                              # state + real Docker, for manual curl-based end-to-end testing
+  manual_test_real_gcp.py   # same, but against a real Firestore + GCS project
   make_demo_dataset_zip.py  # writes a validly-shaped demo dataset zip for the upload path
 tests/
   common/              # pure unit tests for the domain rules, no mocks
@@ -101,6 +103,23 @@ HF Hub repo, and a real zip upload via `scripts/make_demo_dataset_zip.py`
 manually: both paths go all the way through `queued → initializing →
 training → completed` and produce a real, downloadable checkpoint zip.
 
+### Manual end-to-end testing against real GCP
+
+`scripts/manual_test_real_gcp.py` is the same idea, wired to a real
+Firestore database + GCS bucket instead (real signed URLs, a real public
+HF Hub dataset) — only reCAPTCHA/HF OAuth stay faked, since neither has a
+browser available to produce a real token/code here:
+
+```bash
+uv run python scripts/manual_test_real_gcp.py \
+  --project-id YOUR_PROJECT --database-id YOUR_DATABASE --bucket YOUR_BUCKET
+```
+
+See [`deploy/README.md`](deploy/README.md) for the one-time Firestore
+database + composite-index + IAM setup this needs first. It writes real
+data and does not clean up after itself — see the script's own printed
+reminder.
+
 ## What's genuinely tested vs. what's a thin wire-up
 
 - **Fully unit-tested**: everything under `common/domain/`, all backend
@@ -115,7 +134,12 @@ training → completed` and produce a real, downloadable checkpoint zip.
   daemon to test meaningfully): `backend/adapters/firestore/*`,
   `backend/adapters/gcs/*`, `backend/adapters/hf/*`,
   `backend/adapters/recaptcha/*`, `worker/docker_runner.py`. Reviewed by
-  hand instead; keep them small if you touch them.
+  hand instead; keep them small if you touch them. (`firestore/*` and
+  `gcs/*` were, however, exercised against a real GCP project manually —
+  see below; `hf/hf_hub_client.py` and `worker/docker_runner.py` too.
+  `hf/hf_oauth_client.py` and `recaptcha/verifier.py` are the two pieces
+  genuinely never run against anything real, real or otherwise — no
+  browser/OAuth app available to produce a token/code.)
 - The two `docker/*/Dockerfile` images were built and run manually during
   development (`docker build` + `docker run`) to confirm the
   `train_entrypoint.py` contract actually produces `progress.json` and a
@@ -134,6 +158,21 @@ training → completed` and produce a real, downloadable checkpoint zip.
   dataset paths. This sandbox has no GPU driver, so both runs used
   `use_gpu=False` (now a proper `JobPoller`/`WorkerSettings` option, not a
   monkeypatch) — production still defaults to `use_gpu=True`.
+- The same pipeline was then run a third time against a **real GCP
+  project** (`scripts/manual_test_real_gcp.py`): real Firestore (a named,
+  non-default database — required adding `Settings.firestore_database_id`
+  and threading it through `firestore.Client(database=...)`, which wasn't
+  needed before), a real GCS bucket with real V4-signed upload/download
+  URLs, and a real public HF Hub dataset (`lerobot/pusht`, confirmed to
+  actually pass `check_lerobot_structure`/`check_policy_compatibility`
+  before relying on it). Caught a real gap: two of
+  `FirestoreJobRepository`'s queries need a Firestore composite index that
+  doesn't exist until you create it once — see `deploy/README.md` and
+  `deploy/firestore.indexes.json`. Register → login → submit → real
+  dataset download into the LRU cache → real container → real checkpoint
+  uploaded to and downloaded back from `storage.googleapis.com` all
+  worked; test data was cleaned up manually afterward (nothing here does
+  that automatically — see the script's own printed reminder).
 
 ## Scope and known gaps
 
@@ -145,8 +184,9 @@ Deliberately left out of this pass (see the spec for what they should do):
   `progress.json`/a checkpoint directory on schedule, but doesn't actually
   load the dataset or train a model. Swap in real `lerobot` training code
   without changing the CLI contract the worker depends on.
-- Firestore/GCS/HF/reCAPTCHA adapters are real but unverified against live
-  services in this environment (no credentials available here).
+- HF OAuth login and reCAPTCHA verification are real code, verified only
+  by review — neither can be exercised without a browser (no frontend
+  exists to produce a real OAuth code or reCAPTCHA token).
 - Cloud Scheduler (spec section 4) isn't provisioned — see
   [`deploy/README.md`](deploy/README.md) for the one-line `gcloud` command
   to point it at `/internal/check-timeouts`.

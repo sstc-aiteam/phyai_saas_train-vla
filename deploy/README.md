@@ -1,8 +1,44 @@
 # Deployment artifacts
 
 Reference configs for the pieces the spec calls out that aren't backend/worker
-application code. None of these have been applied or tested against real
-GCP/systemd in this environment — review before using.
+application code. The systemd unit hasn't been applied/tested against a real
+systemd host. The Firestore/GCS pieces *have* been verified against a real
+GCP project (see `scripts/manual_test_real_gcp.py` and the README's "What's
+genuinely tested" section) — review before using regardless.
+
+## Firestore setup
+
+1. Create the database once per project (Console → Firestore → "Create
+   database", **Native mode**) — there's no API call that does this for you,
+   and the client library errors with `NotFound` until it exists.
+2. Grant the app's service account `roles/datastore.user` (data read/write
+   only — deliberately *not* index-management rights; see step 3) and
+   `roles/storage.objectAdmin` on the bucket:
+   ```bash
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:YOUR_SERVICE_ACCOUNT_EMAIL" \
+     --role="roles/datastore.user"
+   gsutil iam ch serviceAccount:YOUR_SERVICE_ACCOUNT_EMAIL:roles/storage.objectAdmin gs://YOUR_BUCKET_NAME
+   ```
+3. Two of `FirestoreJobRepository`'s queries combine a filter with
+   `order_by` on a different field, which Native-mode Firestore requires a
+   composite index for — `firestore.indexes.json` documents the two needed
+   (`jobs`: user_id+created_at, and status+created_at). The first time you
+   run either query without them, the error message includes a direct
+   "create this index" console link — that's the easiest way to create
+   them (uses your own admin credentials, not the app's service account,
+   which intentionally lacks `datastore.indexAdmin`/`owner`). Each takes a
+   minute or two to finish building after creation.
+
+## Manual end-to-end testing against real GCP
+
+`scripts/manual_test_real_gcp.py` (see the main README) runs the backend +
+worker against real Firestore/GCS instead of in-memory fakes, with only
+reCAPTCHA/HF OAuth faked (no browser available to produce a real
+token/code). It writes real data (a demo user, job docs, an uploaded
+checkpoint) and does not clean up after itself — see the script's own
+printed reminder, or delete the `users`/`jobs` docs and any
+`checkpoints/`/`uploads/` objects by hand afterward.
 
 ## Worker host (systemd)
 

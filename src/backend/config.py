@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-secret-change-me"
     scheduler_shared_secret: str = "dev-scheduler-secret-change-me"
     gcs_bucket: str = "lerobot-training-service-dev"
+    # Firestore supports multiple named databases per project; "(default)"
+    # is the literal name of the one auto-created if you never name one.
+    firestore_database_id: str = "(default)"
+    gcp_project_id: str | None = None  # None lets the client library infer it (e.g. from ADC)
     recaptcha_secret_key: str = ""
     min_captcha_score: float = 0.5
     hf_oauth_client_id: str = ""

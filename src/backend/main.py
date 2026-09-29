@@ -76,12 +76,12 @@ def _build_default_dependencies(settings: Settings) -> Dependencies:
     from backend.adapters.hf.hf_oauth_client import RealHFOAuthClient
     from backend.adapters.recaptcha.verifier import GoogleRecaptchaVerifier
 
-    firestore_client = firestore.Client()
+    firestore_client = firestore.Client(project=settings.gcp_project_id, database=settings.firestore_database_id)
     return build_dependencies(
         settings,
         user_repository=FirestoreUserRepository(firestore_client),
         job_repository=FirestoreJobRepository(firestore_client),
-        storage=GCSObjectStorage(storage.Client(), settings.gcs_bucket),
+        storage=GCSObjectStorage(storage.Client(project=settings.gcp_project_id), settings.gcs_bucket),
         hf_hub_client=RealHFHubClient(),
         captcha_verifier=GoogleRecaptchaVerifier(settings.recaptcha_secret_key),
         hf_oauth_client=RealHFOAuthClient(settings.hf_oauth_client_id, settings.hf_oauth_client_secret),
