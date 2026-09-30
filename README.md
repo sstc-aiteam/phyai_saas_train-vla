@@ -209,8 +209,10 @@ Deliberately left out of this pass (see the spec for what they should do):
   (`lerobot-jwt-secret`/`lerobot-scheduler-secret`) rather than plain env
   vars, with the runtime service account granted `secretAccessor` on each
   individually — see `deploy/README.md`'s "Deployed status" for details.
-  **TODO**: `LEROBOT_RECAPTCHA_SECRET_KEY` the same way, once a real
-  reCAPTCHA v3 site key exists to pair it with.
+  `LEROBOT_RECAPTCHA_SECRET_KEY` now lives there too (`lerobot-recaptcha-secret`),
+  verified against Google's real siteverify API via a bogus-token call to
+  the live `/auth/register` endpoint (got a clean 400, not a crash or an
+  "invalid secret" error).
 - **Cloud Scheduler provisioned**: `lerobot-check-timeouts` is `ENABLED`
   in `us-central1`, hitting the live backend's `/internal/check-timeouts`
   every 5 minutes with the real scheduler secret — see `deploy/README.md`

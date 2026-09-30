@@ -101,9 +101,16 @@ themselves needed a one-off `roles/secretmanager.admin` grant on the
 deploying identity, same separation as the Cloud Run/Cloud Build grants
 above.
 
-**TODO**: set `LEROBOT_RECAPTCHA_SECRET_KEY` the same way (Secret Manager,
-not plain env var) once a real reCAPTCHA v3 site key exists to pair it
-with.
+`LEROBOT_RECAPTCHA_SECRET_KEY` was added the same way once a real
+reCAPTCHA v3 secret key existed (secret `lerobot-recaptcha-secret`,
+`secretAccessor` granted to the runtime SA on that secret only). Verified
+by calling `POST /auth/register` on the live service with a deliberately
+bogus token: got a clean `400 {"detail":"reCAPTCHA verification
+failed"}` from Google's real siteverify API — proves the secret key itself
+is valid and reachable, not just that the wiring didn't crash. The
+reCAPTCHA site was registered for `localhost` only, since no frontend
+domain exists yet; add the real domain in the reCAPTCHA admin console
+once the frontend is deployed.
 
 ## Worker host (systemd)
 
