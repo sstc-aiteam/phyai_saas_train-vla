@@ -205,10 +205,12 @@ Deliberately left out of this pass (see the spec for what they should do):
   (real random values now, generated at deploy time). **TODO**: those two
   are still plain Cloud Run env vars, not Secret Manager — see
   `deploy/README.md`'s "Deployed status"/"TODO" for the exact follow-up.
-- Cloud Scheduler (spec section 4) isn't provisioned yet — see
-  [`deploy/README.md`](deploy/README.md) for the one-line `gcloud` command
-  to point it at `/internal/check-timeouts` (there's now a real URL to
-  point it at).
+- **Cloud Scheduler provisioned**: `lerobot-check-timeouts` is `ENABLED`
+  in `us-central1`, hitting the live backend's `/internal/check-timeouts`
+  every 5 minutes with the real scheduler secret — see `deploy/README.md`
+  for what was and wasn't independently verifiable (no Cloud Logging
+  access from here to confirm Scheduler's own view of the HTTP result,
+  though the identical call was independently curl-verified to work).
 - Dataset fetching (`dataset_fetcher.py`) runs synchronously inside
   `JobPoller.tick()`, blocking the poll loop for as long as the download
   takes. On a well-connected host this should comfortably fit inside the

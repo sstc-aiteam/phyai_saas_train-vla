@@ -132,8 +132,24 @@ file worth version-controlling on its own). Point it at the backend's
 
 ```bash
 gcloud scheduler jobs create http lerobot-check-timeouts \
+  --location YOUR_REGION \
   --schedule="*/5 * * * *" \
   --uri="https://<backend-cloud-run-url>/internal/check-timeouts" \
   --http-method=POST \
   --headers="X-Scheduler-Secret=<same value as LEROBOT_SCHEDULER_SHARED_SECRET>"
 ```
+
+Needs the Cloud Scheduler API enabled and `roles/cloudscheduler.admin` on
+whichever identity creates the job (same pattern as the Cloud Run
+permissions above — not something the app's own runtime service account
+should have either).
+
+**Deployed status**: `lerobot-check-timeouts` exists in `us-central1`,
+project `sstc-aiteam`, `state: ENABLED`, targeting the live Cloud Run URL
+above. `gcloud scheduler jobs run lerobot-check-timeouts` was used to
+trigger it once manually and completed without error; the deploying
+identity doesn't have Cloud Logging access to confirm the resulting HTTP
+status Cloud Scheduler itself saw, but the identical URL+header
+combination was independently verified via `curl` to return `200
+{"failed_job_ids":[]}` (see "Backend (Cloud Run)" above), so the scheduled
+calls should succeed the same way every 5 minutes.
