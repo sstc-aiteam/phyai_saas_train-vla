@@ -3,9 +3,10 @@
 Backend API + GPU worker for the service described in
 [`lerobot-training-service-spec.md`](lerobot-training-service-spec.md).
 
-This implementation covers the **backend API (FastAPI) and the GPU worker's
-core orchestration logic**. The React frontend and the real ACT/SmolVLA
-`lerobot` training code are out of scope for this pass — see
+This implementation covers the **backend API (FastAPI), the GPU worker's
+core orchestration logic, and real ACT/SmolVLA training** (see
+[Real ACT/SmolVLA training](#real-actsmolvla-training)). The React frontend
+is out of scope for this pass — see
 [Scope and known gaps](#scope-and-known-gaps).
 
 ## Architecture
@@ -73,7 +74,11 @@ tests/
 
 ```bash
 uv sync
-uv run pytest              # 220 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
+uv run pytest              # 204 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
+                           # (+1 skipped: the docker/ entrypoint tests need
+                           # the optional `lerobot` dependency, only present
+                           # inside the training images, not this project's
+                           # own venv)
 uv run uvicorn backend.main:app --reload   # local dev server, in-memory adapters by default
 ```
 
@@ -142,10 +147,17 @@ reminder.
   `hf/hf_oauth_client.py` and `recaptcha/verifier.py` are the two pieces
   genuinely never run against anything real, real or otherwise — no
   browser/OAuth app available to produce a token/code.)
-- The two `docker/*/Dockerfile` images were built and run manually during
-  development (`docker build` + `docker run`) to confirm the
-  `train_entrypoint.py` contract actually produces `progress.json` and a
-  checkpoint directory in the shape the worker expects.
+- The two `docker/*/Dockerfile` images run real `lerobot` training (see
+  "Real ACT/SmolVLA training" above), not the earlier stub, so
+  `tests/docker/test_train_entrypoint_contract.py` now only unit-tests the
+  torch/lerobot-free parts (CLI parsing, `--input-dir` validation,
+  `progress.json`'s write shape) and skips entirely via
+  `pytest.importorskip("lerobot")` when that optional dependency isn't
+  installed (it never is in this project's own `pyproject.toml` — only the
+  training images have it). The training loop and checkpoint writer
+  themselves were instead built and run manually against the real RTX 4090
+  host, confirming they produce `progress.json` and a checkpoint directory
+  in the shape the worker expects, with real weights inside.
 - The full `JobPoller` -> `DatasetFetcher` -> container -> `JobCompletionMonitor`
   -> checkpoint upload pipeline was run end-to-end against a real `docker`
   daemon for both source types (`hf_hub` and `zip_upload`), using
@@ -184,16 +196,69 @@ reminder.
   the app's own least-privilege runtime service account intentionally
   doesn't have — see `deploy/README.md`.
 
+## Real ACT/SmolVLA training
+
+`docker/act/train_entrypoint.py` and `docker/smolvla/train_entrypoint.py` run
+real `lerobot` (0.6.1) training, not the earlier contract stub. Both load the
+LeRobot v3 dataset the worker mounts at `--input-dir` via `LeRobotDataset`,
+build the policy from its official defaults (only `--training-steps` is
+spec-tunable), run a plain single-GPU training loop, and save a real
+checkpoint (`policy.save_pretrained` + pre/postprocessor `save_pretrained`,
+i.e. weights + `config.json` + normalization stats) to
+`--output-dir/checkpoint` — the same directory `worker/checkpoint_packager.py`
+already zips.
+
+- **ACT** trains from scratch (ImageNet-pretrained ResNet-18 vision backbone,
+  everything else random init), matching the spec's per-job/per-dataset
+  training model.
+- **SmolVLA** *finetunes* the official `lerobot/smolvla_base` checkpoint
+  instead of training a VLM from random weights — training one from scratch
+  isn't realistic on one GPU within the spec's 20,000-step cap, and this is
+  what HuggingFace's own SmolVLA docs recommend. Both `lerobot/smolvla_base`
+  and its VLM backbone's own `transformers` config/tokenizer
+  (`HuggingFaceTB/SmolVLM2-500M-Video-Instruct`) are baked into the image at
+  build time, so a job needs no Hub access at run time (confirmed with
+  `docker run --network none`); ACT's ResNet-18 backbone is baked in the
+  same way (a separate mechanism — `torch.hub`, not the HF Hub — so it
+  needed its own fix once the first offline run surfaced it).
+- Both images moved off the stub's `python:3.11-slim` base to
+  `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04` + Python 3.12 (`lerobot`
+  0.5+ requires it) with a CUDA 12.8 PyTorch build (matches this training
+  host's driver: RTX 4090, driver 580.126.09 / CUDA 13.0, forward-compatible
+  with cu12.8). `lerobot[dataset]` (`[dataset,smolvla]` for the SmolVLA
+  image) is installed rather than `[training]`: both entrypoints drive their
+  own loop instead of lerobot's `accelerate`/`wandb`-based `lerobot-train`
+  CLI, so those extras are skipped.
+- Dataloading uses `num_workers=0` (single-process) rather than lerobot's
+  own default of 4: the worker's `docker run` doesn't size `/dev/shm` for
+  multi-worker tensor passing (Docker's 64MB default), and GPU compute, not
+  CPU dataloading, dominates step time for both policies anyway.
+- **Verified on the actual RTX 4090 training host**: both images built and
+  run end-to-end (`docker run --gpus all`) against a real dataset
+  (`lerobot/pusht`, downloaded from the HF Hub) for a handful of real
+  training steps each — real forward/backward/optimizer steps on the GPU,
+  real `progress.json` updates, and a real checkpoint (ACT: ~207MB
+  `model.safetensors`; SmolVLA: ~1.2GB) that `worker/checkpoint_packager.py`
+  successfully zipped. Not exercised: a full-length (thousands-of-steps) run,
+  or the worker's own heartbeat/timeout logic driving a real container
+  (that path's plumbing — reading `progress.json`, checking exit codes — was
+  already covered by the "What's genuinely tested" section above against
+  the old stub, and the contract didn't change).
+- **Known gap surfaced by moving to real training**: this repo's own
+  dataset validation (`common/domain/policy_shapes.py`) doesn't require a
+  visual feature for ACT, but `lerobot`'s real `ACTConfig.validate_features()`
+  does (image *or* simulated env-state). A state-only dataset can pass this
+  service's upload validation and still fail at training time with a clear
+  `ValueError` — surfaced to the job as a generic "exited with code 1"
+  (`worker/job_completion.py` doesn't thread container stderr into
+  Firestore's `error_message`). Not fixed here; `policy_shapes.py` would
+  need to require a visual feature for ACT too.
+
 ## Scope and known gaps
 
 Deliberately left out of this pass (see the spec for what they should do):
 
 - **React frontend** — not built.
-- **Real ACT/SmolVLA training** — `docker/*/train_entrypoint.py` is a
-  contract stub: it checks `--input-dir` is populated and writes
-  `progress.json`/a checkpoint directory on schedule, but doesn't actually
-  load the dataset or train a model. Swap in real `lerobot` training code
-  without changing the CLI contract the worker depends on.
 - HF OAuth login and reCAPTCHA verification are real code, verified only
   by review — neither can be exercised without a browser (no frontend
   exists to produce a real OAuth code or reCAPTCHA token).
