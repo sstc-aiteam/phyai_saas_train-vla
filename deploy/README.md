@@ -123,6 +123,12 @@ Apply with:
 gsutil lifecycle set gcs-lifecycle.json gs://<your-bucket-name>
 ```
 
+**Deployed status**: applied to `gs://phyai-saas-train-vla-gs`; confirmed
+with `gsutil lifecycle get` that the bucket's rule matches this file
+exactly. Actual deletions happen on GCS's own daily lifecycle sweep, which
+isn't something to wait around and verify here — the config being live is
+the checkable part.
+
 ## Cloud Scheduler (spec section 4)
 
 Not included as a file here (it's a single `gcloud` command, not a config

@@ -211,6 +211,11 @@ Deliberately left out of this pass (see the spec for what they should do):
   for what was and wasn't independently verifiable (no Cloud Logging
   access from here to confirm Scheduler's own view of the HTTP result,
   though the identical call was independently curl-verified to work).
+- **GCS bucket lifecycle rule applied**: `gs://phyai-saas-train-vla-gs`
+  now carries the two rules from `deploy/gcs-lifecycle.json` (1-day
+  orphaned-upload cleanup, 7-day checkpoint expiry), confirmed via `gsutil
+  lifecycle get`. The actual deletions happen on GCS's own daily sweep —
+  not something to sit and watch for.
 - Dataset fetching (`dataset_fetcher.py`) runs synchronously inside
   `JobPoller.tick()`, blocking the poll loop for as long as the download
   takes. On a well-connected host this should comfortably fit inside the
