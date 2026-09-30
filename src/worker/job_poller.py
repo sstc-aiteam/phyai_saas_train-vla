@@ -22,7 +22,7 @@ from pathlib import Path
 
 from common.domain import job_state_machine, quota
 from common.models import Job, JobStatus, PolicyType, utcnow
-from common.ports.docker_client import ContainerSpec, DockerClient
+from common.ports.docker_client import LEROBOT_JOB_ID_LABEL, ContainerSpec, DockerClient
 from common.ports.job_repository import JobRepository
 from common.ports.user_repository import UserRepository
 
@@ -142,6 +142,6 @@ class JobPoller:
             volumes=volumes,
             read_only_paths=read_only_paths,
             environment={"JOB_ID": job.id},
-            labels={"lerobot.job_id": job.id},
+            labels={LEROBOT_JOB_ID_LABEL: job.id},
             use_gpu=self._use_gpu,
         )

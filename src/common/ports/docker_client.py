@@ -5,6 +5,15 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+# Every container this service starts (see worker/job_poller.py) carries this
+# label. `DockerClient.list_running_container_ids()` implementations must
+# filter to it -- this host may run other, unrelated Docker workloads, and
+# `worker/orphan_reconciler.py` kills anything list_running_container_ids()
+# returns that isn't a tracked job. An unfiltered "all running containers on
+# this host" implementation has, in practice, killed an unrelated long-running
+# service on a shared host; scoping to this label is the fix.
+LEROBOT_JOB_ID_LABEL = "lerobot.job_id"
+
 
 @dataclass(frozen=True)
 class ContainerSpec:
@@ -40,7 +49,9 @@ class DockerClient(ABC):
 
     @abstractmethod
     def list_running_container_ids(self) -> list[str]:
-        """List ids of all currently-running containers on this host."""
+        """List ids of currently-running containers *this service manages*
+        (carrying the `LEROBOT_JOB_ID_LABEL` label) -- not every container on
+        the host. See the module docstring above for why that scoping matters."""
         ...
 
     @abstractmethod

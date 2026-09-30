@@ -8,10 +8,6 @@ the next queued job's dataset (into the shared HF cache, or by extracting
 its uploaded zip) and starts its container; `JobCompletionMonitor` tracks
 the currently-active job's progress and, once its container exits,
 packages/uploads the checkpoint (spec 3.7).
-
-NOTE: `docker/*/train_entrypoint.py` is still a contract stub — it now
-receives --input-dir pointing at the fetched dataset, but doesn't load or
-train on it yet.
 """
 
 from __future__ import annotations

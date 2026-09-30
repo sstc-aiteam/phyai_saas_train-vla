@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import itertools
 
-from common.ports.docker_client import ContainerSpec, DockerClient
+from common.ports.docker_client import LEROBOT_JOB_ID_LABEL, ContainerSpec, DockerClient
 
 
 class FakeDockerClient(DockerClient):
@@ -38,7 +38,10 @@ class FakeDockerClient(DockerClient):
         self._exit_codes[container_id] = exit_code
 
     def list_running_container_ids(self) -> list[str]:
-        return list(self._running.keys())
+        # Mirrors DockerRunner's real label filter (see LEROBOT_JOB_ID_LABEL):
+        # a seeded container without that label represents some other,
+        # unrelated Docker workload sharing the host, not one of ours.
+        return [cid for cid, spec in self._running.items() if LEROBOT_JOB_ID_LABEL in spec.labels]
 
     def get_label(self, container_id: str, label: str) -> str | None:
         spec = self._running.get(container_id)

@@ -6,7 +6,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class WorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LEROBOT_WORKER_", env_file=".env", extra="ignore")
 
-    lock_file_path: str = "/var/run/lerobot-worker.lock"
+    # Under /run/lerobot-worker/, not /var/run directly: that subdirectory is
+    # created (owned by this process's own user) by the systemd unit's
+    # `RuntimeDirectory=lerobot-worker` -- /run itself is root:root 0755, so
+    # a non-root worker can't create a lock file there directly.
+    lock_file_path: str = "/run/lerobot-worker/lerobot-worker.lock"
     hf_cache_dir: str = "/var/lib/lerobot-worker/hf-cache"
     hf_cache_max_bytes: int = 20 * 1024**3  # 20GB, spec section 5
     workdir: str = "/var/lib/lerobot-worker/jobs"

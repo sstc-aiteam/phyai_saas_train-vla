@@ -10,7 +10,7 @@ from pathlib import Path
 import docker
 from docker.types import DeviceRequest
 
-from common.ports.docker_client import ContainerSpec, DockerClient
+from common.ports.docker_client import LEROBOT_JOB_ID_LABEL, ContainerSpec, DockerClient
 
 
 class DockerRunner(DockerClient):
@@ -74,7 +74,15 @@ class DockerRunner(DockerClient):
         return container.attrs["State"]["ExitCode"]
 
     def list_running_container_ids(self) -> list[str]:
-        return [c.id for c in self._client.containers.list(filters={"status": "running"})]
+        # Scoped to containers this service itself started (see
+        # LEROBOT_JOB_ID_LABEL's docstring): the caller (orphan_reconciler.py)
+        # kills anything this returns that isn't a tracked job, so an
+        # unfiltered "every running container on the host" list would reach
+        # (and kill) unrelated Docker workloads sharing this machine.
+        containers = self._client.containers.list(
+            filters={"status": "running", "label": LEROBOT_JOB_ID_LABEL}
+        )
+        return [c.id for c in containers]
 
     def get_label(self, container_id: str, label: str) -> str | None:
         try:

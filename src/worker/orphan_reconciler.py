@@ -1,13 +1,19 @@
 """Worker-restart reconciliation (spec section 4).
 
-On startup, compare containers actually running on the host against the
-jobs Firestore thinks are `initializing`/`training`:
+On startup, compare this service's own running containers (see
+`DockerClient.list_running_container_ids()` -- scoped to containers
+carrying `LEROBOT_JOB_ID_LABEL`, not every container on the host) against
+the jobs Firestore thinks are `initializing`/`training`:
 
 - container id matches a tracked job -> resume monitoring it (nothing to
   do here beyond reporting it; the poller picks it back up)
-- container is running but doesn't match any tracked job -> orphan, kill it
+- container is running but doesn't match any tracked job -> orphan (e.g.
+  left over from a job whose Firestore update never landed before a crash),
+  kill it
 
-This guarantees at most one training container ever occupies the GPU.
+This guarantees at most one training container ever occupies the GPU. It
+deliberately never touches containers outside this service's own label --
+the host may run other, unrelated Docker workloads.
 """
 
 from __future__ import annotations

@@ -1,8 +1,7 @@
 # Deployment artifacts
 
 Reference configs for the pieces the spec calls out that aren't backend/worker
-application code. The systemd unit hasn't been applied/tested against a real
-systemd host. The Firestore/GCS pieces *have* been verified against a real
+application code. The Firestore/GCS pieces *have* been verified against a real
 GCP project (see `scripts/manual_test_real_gcp.py` and the README's "What's
 genuinely tested" section) — review before using regardless.
 
@@ -128,7 +127,44 @@ once the frontend is deployed.
 
 `Restart=always` (spec section 2) is set in the unit; the worker's own lock
 file (`worker/lock.py`) keeps a second instance from ever running alongside a
-restarted one.
+restarted one. The unit's `RuntimeDirectory=lerobot-worker` creates
+`/run/lerobot-worker/` (owned by the `lerobot-worker` user) for that lock
+file to live in — `/run` itself is `root:root 0755`, so a non-root worker
+can't create a lock file directly under `/var/run`/`/run`, which is exactly
+what the first real run on a systemd host caught: it crash-looped
+(`PermissionError` out of `WorkerLock.acquire()`) until `RuntimeDirectory`
+was added and `WorkerSettings.lock_file_path`'s default moved off
+`/var/run/lerobot-worker.lock`.
+
+**Deployed status**: staged and started on the training host (project
+`sstc-aiteam`, Firestore database `phyai-saas-train-vla-cf`, bucket
+`phyai-saas-train-vla-gs`) — app deployed to `/opt/lerobot-training-service`,
+`lerobot-worker` user created and in the `docker` group, service account key
+at `/etc/lerobot-worker/gcp-service-account.json` (mode 600, owned by
+`lerobot-worker`), `worker.env` at mode 640 (`root:lerobot-worker`). The
+`RuntimeDirectory` crash above was hit and fixed on this exact host before
+the service came up clean.
+
+**A second, more serious bug came out of that same first run**: on startup,
+`DockerClient.list_running_container_ids()` returned *every* running
+container on the host, not just this service's own -- and
+`worker/orphan_reconciler.py` kills anything that list contains that isn't a
+tracked job (spec section 4's "at most one training container" guarantee).
+On this host that killed a real, unrelated `redis` container that had
+nothing to do with this service (recovered with `docker start redis`, since
+`kill` doesn't remove the container). Fixed by scoping
+`list_running_container_ids()` to containers carrying the
+`LEROBOT_JOB_ID_LABEL` label (`lerobot.job_id`) that `worker/job_poller.py`
+already puts on every container it starts -- see
+`tests/worker/test_orphan_reconciler.py::test_unrelated_container_without_our_label_is_left_alone`
+for the regression test, and `common/ports/docker_client.py`'s module
+docstring for the full story. Re-verified against this host's real Docker
+daemon after the fix: an unlabeled container is left running, a labeled one
+is not. **This means the spec's assumption that the training host is fully
+dedicated to this service doesn't actually hold on this machine** — if
+anything else here runs long-lived Docker containers, review this before
+relying on `Restart=always` cycling the worker (e.g. after a crash or a
+`lock_file_path`-style config change) to never touch them.
 
 ## GCS bucket lifecycle rule (spec sections 3 and 7)
 

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from common.models import Job, JobStatus, PolicyType, SourceType
-from common.ports.docker_client import ContainerSpec
+from common.ports.docker_client import LEROBOT_JOB_ID_LABEL, ContainerSpec
 from worker.orphan_reconciler import reconcile
 
 from tests.backend.fakes.fake_job_repository import FakeJobRepository
@@ -25,14 +25,17 @@ def make_job(job_id: str, status: JobStatus, container_id: str | None) -> Job:
     )
 
 
-def make_spec(name: str) -> ContainerSpec:
+def make_spec(name: str, job_id: str | None = None) -> ContainerSpec:
+    """`job_id=None` simulates a container with no `lerobot.job_id` label at
+    all -- some other, unrelated Docker workload sharing the host, not one of
+    this service's own (even an abandoned/untracked) containers."""
     return ContainerSpec(
         image="lerobot-train-act:latest",
         name=name,
         command=["python", "train_entrypoint.py"],
         volumes={},
         environment={},
-        labels={},
+        labels={LEROBOT_JOB_ID_LABEL: job_id} if job_id else {},
     )
 
 
@@ -48,7 +51,7 @@ def docker():
 
 def test_matching_container_is_resumed_not_killed(job_repo, docker):
     job_repo.create(make_job("job-1", JobStatus.TRAINING, "container-1"))
-    docker.seed_running_container("container-1", make_spec("job-1"))
+    docker.seed_running_container("container-1", make_spec("job-1", job_id="job-1"))
 
     result = reconcile(docker, job_repo)
 
@@ -58,7 +61,10 @@ def test_matching_container_is_resumed_not_killed(job_repo, docker):
 
 
 def test_orphan_container_is_killed(job_repo, docker):
-    docker.seed_running_container("orphan-container", make_spec("mystery"))
+    # Carries our label but matches no tracked job -- e.g. left running by a
+    # worker that crashed after starting the container but before its
+    # Firestore update landed.
+    docker.seed_running_container("orphan-container", make_spec("mystery", job_id="mystery-job"))
 
     result = reconcile(docker, job_repo)
 
@@ -67,10 +73,25 @@ def test_orphan_container_is_killed(job_repo, docker):
     assert docker.is_running("orphan-container") is False
 
 
+def test_unrelated_container_without_our_label_is_left_alone(job_repo, docker):
+    # Regression test: this service's orphan reconciliation must never touch
+    # a container it didn't start itself -- e.g. some other long-running
+    # Docker workload sharing this host (a real incident: an unfiltered
+    # "every running container on the host" implementation killed an
+    # unrelated redis server on first deploy).
+    docker.seed_running_container("redis", make_spec("redis", job_id=None))
+
+    result = reconcile(docker, job_repo)
+
+    assert result.resumed_jobs == []
+    assert result.killed_orphan_container_ids == []
+    assert docker.is_running("redis") is True
+
+
 def test_mixed_case_resumes_matching_and_kills_orphan(job_repo, docker):
     job_repo.create(make_job("job-1", JobStatus.INITIALIZING, "container-1"))
-    docker.seed_running_container("container-1", make_spec("job-1"))
-    docker.seed_running_container("container-2", make_spec("orphan"))
+    docker.seed_running_container("container-1", make_spec("job-1", job_id="job-1"))
+    docker.seed_running_container("container-2", make_spec("orphan", job_id="orphan-job"))
 
     result = reconcile(docker, job_repo)
 
@@ -89,9 +110,9 @@ def test_no_running_containers_is_a_noop(job_repo, docker):
 
 def test_at_most_one_container_ever_ends_up_running(job_repo, docker):
     job_repo.create(make_job("job-1", JobStatus.TRAINING, "container-1"))
-    docker.seed_running_container("container-1", make_spec("job-1"))
-    docker.seed_running_container("container-2", make_spec("leftover"))
-    docker.seed_running_container("container-3", make_spec("leftover-2"))
+    docker.seed_running_container("container-1", make_spec("job-1", job_id="job-1"))
+    docker.seed_running_container("container-2", make_spec("leftover", job_id="leftover-job"))
+    docker.seed_running_container("container-3", make_spec("leftover-2", job_id="leftover-job-2"))
 
     reconcile(docker, job_repo)
 
