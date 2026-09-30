@@ -71,9 +71,14 @@ gcloud run deploy lerobot-backend \
 service" positioning (section 1); tighten it if that changes.
 `LEROBOT_JWT_SECRET`/`LEROBOT_SCHEDULER_SHARED_SECRET`/
 `LEROBOT_RECAPTCHA_SECRET_KEY`/`LEROBOT_HF_OAUTH_CLIENT_SECRET` are left out
-of the example above on purpose — use `--set-secrets` with Secret Manager
-for those rather than plain `--set-env-vars`, since they're credentials,
-not config. No IAM binding is needed for the running service to reach
+of the example above on purpose — create them in Secret Manager and attach
+with `--update-secrets ENV_VAR=SECRET_NAME:latest` (see "Deployed status"
+below for the exact commands used) rather than plain `--set-env-vars`,
+since they're credentials, not config. The running service account needs
+`roles/secretmanager.secretAccessor` on each secret (grant it per-secret,
+not project-wide) in addition to what's needed to create the secret in the
+first place (`roles/secretmanager.admin` on the deploying identity). No
+IAM binding is needed for the running service to reach
 Firestore/GCS beyond what's already on `YOUR_APP_SERVICE_ACCOUNT_EMAIL`
 (see "Firestore setup" above) — Cloud Run just runs the container *as*
 that service account.
@@ -83,14 +88,22 @@ that service account.
 `us-central1` deploy; the old service, its Cloud Build staging bucket
 `run-sources-sstc-aiteam-us-central1`, and its `cloud-run-source-deploy`
 Artifact Registry repo were all deleted rather than left orphaned).
-`LEROBOT_JWT_SECRET` and `LEROBOT_SCHEDULER_SHARED_SECRET` are set to real
-random values (no longer the insecure defaults) — but currently via plain
-`--set-env-vars`, not Secret Manager, per the advice above.
+`LEROBOT_JWT_SECRET` and `LEROBOT_SCHEDULER_SHARED_SECRET` are now sourced
+from Secret Manager (secrets `lerobot-jwt-secret` and
+`lerobot-scheduler-secret`, both `automatic` replication) via
+`--update-secrets`, not plain `--set-env-vars` — confirmed on the live
+revision (`spec.template.spec.containers[0].env[].valueFrom.secretKeyRef`)
+and re-verified end-to-end (`/docs` → 200, `/internal/check-timeouts` with
+the real secret → 200). The runtime service account was granted
+`roles/secretmanager.secretAccessor` on each secret individually (not
+project-wide) to keep it least-privilege; creating/updating the secrets
+themselves needed a one-off `roles/secretmanager.admin` grant on the
+deploying identity, same separation as the Cloud Run/Cloud Build grants
+above.
 
-**TODO**: move `LEROBOT_JWT_SECRET`/`LEROBOT_SCHEDULER_SHARED_SECRET` off
-plain env vars and into Secret Manager (`--set-secrets` instead of
-`--update-env-vars`), and set `LEROBOT_RECAPTCHA_SECRET_KEY` the same way
-once a real reCAPTCHA v3 site key exists to pair it with.
+**TODO**: set `LEROBOT_RECAPTCHA_SECRET_KEY` the same way (Secret Manager,
+not plain env var) once a real reCAPTCHA v3 site key exists to pair it
+with.
 
 ## Worker host (systemd)
 

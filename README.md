@@ -205,9 +205,12 @@ Deliberately left out of this pass (see the spec for what they should do):
   Firestore/GCS from earlier. Verified
   `/docs`, `/internal/check-timeouts` (real Firestore), and that the old
   default `LEROBOT_JWT_SECRET`/`LEROBOT_SCHEDULER_SHARED_SECRET` are gone
-  (real random values now, generated at deploy time). **TODO**: those two
-  are still plain Cloud Run env vars, not Secret Manager — see
-  `deploy/README.md`'s "Deployed status"/"TODO" for the exact follow-up.
+  (real random values now). Both are now sourced from Secret Manager
+  (`lerobot-jwt-secret`/`lerobot-scheduler-secret`) rather than plain env
+  vars, with the runtime service account granted `secretAccessor` on each
+  individually — see `deploy/README.md`'s "Deployed status" for details.
+  **TODO**: `LEROBOT_RECAPTCHA_SECRET_KEY` the same way, once a real
+  reCAPTCHA v3 site key exists to pair it with.
 - **Cloud Scheduler provisioned**: `lerobot-check-timeouts` is `ENABLED`
   in `us-central1`, hitting the live backend's `/internal/check-timeouts`
   every 5 minutes with the real scheduler secret — see `deploy/README.md`
