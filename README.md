@@ -198,8 +198,11 @@ Deliberately left out of this pass (see the spec for what they should do):
   by review — neither can be exercised without a browser (no frontend
   exists to produce a real OAuth code or reCAPTCHA token).
 - **Backend deployed to Cloud Run**: live at
-  `https://lerobot-backend-526282644766.us-central1.run.app` (project
-  `sstc-aiteam`), talking to the real Firestore/GCS from earlier. Verified
+  `https://lerobot-backend-526282644766.asia-east1.run.app` (project
+  `sstc-aiteam`, region `asia-east1` — migrated from an initial
+  `us-central1` deploy, with the old service/staging-bucket/Artifact
+  Registry repo all deleted, not left orphaned), talking to the real
+  Firestore/GCS from earlier. Verified
   `/docs`, `/internal/check-timeouts` (real Firestore), and that the old
   default `LEROBOT_JWT_SECRET`/`LEROBOT_SCHEDULER_SHARED_SECRET` are gone
   (real random values now, generated at deploy time). **TODO**: those two

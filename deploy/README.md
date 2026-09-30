@@ -78,11 +78,14 @@ Firestore/GCS beyond what's already on `YOUR_APP_SERVICE_ACCOUNT_EMAIL`
 (see "Firestore setup" above) — Cloud Run just runs the container *as*
 that service account.
 
-**Deployed status**: live at `https://lerobot-backend-526282644766.us-central1.run.app`
-(project `sstc-aiteam`, region `us-central1`). `LEROBOT_JWT_SECRET` and
-`LEROBOT_SCHEDULER_SHARED_SECRET` are set to real random values (no longer
-the insecure defaults) — but currently via plain `--set-env-vars`, not
-Secret Manager, per the advice above.
+**Deployed status**: live at `https://lerobot-backend-526282644766.asia-east1.run.app`
+(project `sstc-aiteam`, region `asia-east1` — migrated from an initial
+`us-central1` deploy; the old service, its Cloud Build staging bucket
+`run-sources-sstc-aiteam-us-central1`, and its `cloud-run-source-deploy`
+Artifact Registry repo were all deleted rather than left orphaned).
+`LEROBOT_JWT_SECRET` and `LEROBOT_SCHEDULER_SHARED_SECRET` are set to real
+random values (no longer the insecure defaults) — but currently via plain
+`--set-env-vars`, not Secret Manager, per the advice above.
 
 **TODO**: move `LEROBOT_JWT_SECRET`/`LEROBOT_SCHEDULER_SHARED_SECRET` off
 plain env vars and into Secret Manager (`--set-secrets` instead of
@@ -150,12 +153,15 @@ whichever identity creates the job (same pattern as the Cloud Run
 permissions above — not something the app's own runtime service account
 should have either).
 
-**Deployed status**: `lerobot-check-timeouts` exists in `us-central1`,
-project `sstc-aiteam`, `state: ENABLED`, targeting the live Cloud Run URL
-above. `gcloud scheduler jobs run lerobot-check-timeouts` was used to
-trigger it once manually and completed without error; the deploying
-identity doesn't have Cloud Logging access to confirm the resulting HTTP
-status Cloud Scheduler itself saw, but the identical URL+header
-combination was independently verified via `curl` to return `200
+**Deployed status**: `lerobot-check-timeouts` exists in `us-central1`
+(the job's own location — doesn't need to match the Cloud Run region it
+targets), project `sstc-aiteam`, `state: ENABLED`, targeting the live
+Cloud Run URL above (updated via `gcloud scheduler jobs update` when the
+backend moved from `us-central1` to `asia-east1`). `gcloud scheduler jobs
+run lerobot-check-timeouts` was used to trigger it once manually and
+completed without error; the deploying identity doesn't have Cloud
+Logging access to confirm the resulting HTTP status Cloud Scheduler
+itself saw, but the identical URL+header combination was independently
+verified via `curl` to return `200
 {"failed_job_ids":[]}` (see "Backend (Cloud Run)" above), so the scheduled
 calls should succeed the same way every 5 minutes.
