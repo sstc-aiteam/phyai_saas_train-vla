@@ -73,6 +73,13 @@ class DockerRunner(DockerClient):
             return None
         return container.attrs["State"]["ExitCode"]
 
+    def get_logs(self, container_id: str, tail_lines: int = 50) -> str:
+        try:
+            container = self._client.containers.get(container_id)
+        except docker.errors.NotFound:
+            return ""
+        return container.logs(tail=tail_lines, stdout=True, stderr=True).decode("utf-8", errors="replace")
+
     def list_running_container_ids(self) -> list[str]:
         # Scoped to containers this service itself started (see
         # LEROBOT_JOB_ID_LABEL's docstring): the caller (orphan_reconciler.py)

@@ -13,6 +13,7 @@ class FakeDockerClient(DockerClient):
         self._id_counter = itertools.count(1)
         self._running: dict[str, ContainerSpec] = {}
         self._exit_codes: dict[str, int] = {}
+        self._logs: dict[str, str] = {}
         self.killed: list[str] = []
 
     def run(self, spec: ContainerSpec) -> str:
@@ -31,11 +32,16 @@ class FakeDockerClient(DockerClient):
     def get_exit_code(self, container_id: str) -> int | None:
         return self._exit_codes.get(container_id)
 
-    def finish_container(self, container_id: str, exit_code: int = 0) -> None:
+    def get_logs(self, container_id: str, tail_lines: int = 50) -> str:
+        return self._logs.get(container_id, "")
+
+    def finish_container(self, container_id: str, exit_code: int = 0, logs: str = "") -> None:
         """Simulate a container that ran to completion on its own (not via
         kill()), e.g. the training script finished or crashed."""
         self._running.pop(container_id, None)
         self._exit_codes[container_id] = exit_code
+        if logs:
+            self._logs[container_id] = logs
 
     def list_running_container_ids(self) -> list[str]:
         # Mirrors DockerRunner's real label filter (see LEROBOT_JOB_ID_LABEL):

@@ -27,6 +27,17 @@ _MONITORED_STATUSES = (JobStatus.INITIALIZING, JobStatus.TRAINING)
 
 UPLOAD_FAILED_MESSAGE = "Training completed but checkpoint upload failed; please resubmit the job."
 
+# Cap on how much of the container's log tail gets stored in Firestore's
+# error_message -- get_logs() already limits line count, but a single very
+# long line (e.g. an unwrapped stack trace) could still bloat the document.
+_MAX_LOG_CHARS = 2000
+
+
+def _truncate_logs(logs: str) -> str:
+    if len(logs) <= _MAX_LOG_CHARS:
+        return logs
+    return f"...(truncated)...\n{logs[-_MAX_LOG_CHARS:]}"
+
 
 class JobCompletionMonitor:
     def __init__(
@@ -78,7 +89,11 @@ class JobCompletionMonitor:
             self._jobs.update(job)
 
         if exit_code != 0:
-            return self._mark_failed(job, f"Training container exited with code {exit_code}", cleanup=True)
+            message = f"Training container exited with code {exit_code}"
+            logs = self._docker.get_logs(job.container_id) if job.container_id else ""
+            if logs:
+                message = f"{message}\n\n--- last lines of container output ---\n{_truncate_logs(logs)}"
+            return self._mark_failed(job, message, cleanup=True)
 
         checkpoint_dir = self._checkpoint_dir(job)
         zip_path = self._output_dir(job) / "checkpoint.zip"

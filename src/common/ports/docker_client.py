@@ -48,6 +48,13 @@ class DockerClient(ABC):
         ...
 
     @abstractmethod
+    def get_logs(self, container_id: str, tail_lines: int = 50) -> str:
+        """Return up to the last `tail_lines` lines of the container's
+        combined stdout+stderr, for surfacing into a failed job's
+        error_message. Empty string if the container/logs aren't found."""
+        ...
+
+    @abstractmethod
     def list_running_container_ids(self) -> list[str]:
         """List ids of currently-running containers *this service manages*
         (carrying the `LEROBOT_JOB_ID_LABEL` label) -- not every container on

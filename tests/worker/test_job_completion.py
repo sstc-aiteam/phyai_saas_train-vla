@@ -153,6 +153,43 @@ def test_failed_container_exit_marks_job_failed_and_cleans_up(job_repo, docker, 
     assert not (tmp_path / "job-1").exists()
 
 
+def test_failed_container_exit_includes_log_tail_in_error_message(job_repo, docker, storage, tmp_path):
+    job_repo.create(make_job(status=JobStatus.TRAINING))
+    write_progress(tmp_path / "job-1" / "output", step=500)
+    docker.finish_container("container-1", exit_code=1, logs="Traceback (most recent call last):\nValueError: boom")
+    monitor = make_monitor(job_repo, docker, storage, tmp_path)
+
+    updated = monitor.tick()
+
+    assert updated.status == JobStatus.FAILED
+    assert "exited with code 1" in updated.error_message
+    assert "ValueError: boom" in updated.error_message
+
+
+def test_failed_container_exit_with_no_logs_omits_log_section(job_repo, docker, storage, tmp_path):
+    job_repo.create(make_job(status=JobStatus.TRAINING))
+    write_progress(tmp_path / "job-1" / "output", step=500)
+    docker.finish_container("container-1", exit_code=1)  # no logs seeded
+    monitor = make_monitor(job_repo, docker, storage, tmp_path)
+
+    updated = monitor.tick()
+
+    assert updated.error_message == "Training container exited with code 1"
+
+
+def test_failed_container_exit_truncates_very_long_logs(job_repo, docker, storage, tmp_path):
+    job_repo.create(make_job(status=JobStatus.TRAINING))
+    write_progress(tmp_path / "job-1" / "output", step=500)
+    huge_logs = "x" * 5000 + "END_OF_LOGS"
+    docker.finish_container("container-1", exit_code=1, logs=huge_logs)
+    monitor = make_monitor(job_repo, docker, storage, tmp_path)
+
+    updated = monitor.tick()
+
+    assert "END_OF_LOGS" in updated.error_message  # kept the tail, not the head
+    assert len(updated.error_message) < len(huge_logs)
+
+
 def test_initializing_job_that_exits_before_any_progress_is_marked_failed(job_repo, docker, storage, tmp_path):
     job_repo.create(make_job(status=JobStatus.INITIALIZING))
     docker.finish_container("container-1", exit_code=1)

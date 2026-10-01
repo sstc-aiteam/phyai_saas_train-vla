@@ -74,7 +74,7 @@ tests/
 
 ```bash
 uv sync
-uv run pytest              # 209 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
+uv run pytest              # 212 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
                            # (+1 skipped: the docker/ entrypoint tests need
                            # the optional `lerobot` dependency, only present
                            # inside the training images, not this project's
@@ -250,13 +250,16 @@ already zips.
   requires a visual feature *or* `observation.environment_state` (confirmed
   against lerobot 0.6.1's actual source, not just the docstring). A
   state-only dataset could pass this service's upload validation and only
-  fail at training time with a generic "exited with code 1" (container
-  stderr still isn't threaded into Firestore's `error_message` —
-  `worker/job_completion.py` only reports the bare exit code, a separate,
-  still-open gap). `policy_shapes.py` now requires ACT datasets to have
-  either a visual feature or `observation.environment_state`, matching the
-  real contract; `scripts/make_demo_dataset_zip.py`'s ACT demo dataset was
-  updated to include `observation.environment_state` to stay valid.
+  fail at training time. `policy_shapes.py` now requires ACT datasets to
+  have either a visual feature or `observation.environment_state`, matching
+  the real contract; `scripts/make_demo_dataset_zip.py`'s ACT demo dataset
+  was updated to include `observation.environment_state` to stay valid.
+  Previously, a failure like this one would have surfaced to the job as
+  just "exited with code 1" — `worker/job_completion.py` now also appends
+  the container's own log tail (`DockerClient.get_logs()`, capped at 2000
+  chars, kept from the end so a truncated message still shows the actual
+  error rather than its start) to `error_message`, so this and any other
+  training-time failure is actually diagnosable from the job record.
 
 ## Scope and known gaps
 
