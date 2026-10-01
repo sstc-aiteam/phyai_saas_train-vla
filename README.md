@@ -74,7 +74,7 @@ tests/
 
 ```bash
 uv sync
-uv run pytest              # 204 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
+uv run pytest              # 207 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
                            # (+1 skipped: the docker/ entrypoint tests need
                            # the optional `lerobot` dependency, only present
                            # inside the training images, not this project's

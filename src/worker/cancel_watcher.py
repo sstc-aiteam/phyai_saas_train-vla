@@ -2,13 +2,20 @@
 
 Scans queued/initializing/training jobs for `cancel_requested`:
 - still `queued` (container never started) -> move straight to `cancelled`,
-  nothing to kill, and this never consumed daily quota.
+  nothing to kill, and this never consumed daily quota. No job dir was ever
+  created at this stage, so there's nothing to clean up on disk either.
 - `initializing`/`training` (container is running) -> `docker kill` it, then
   move to `cancelled`. Any partial checkpoint is discarded by the caller
-  (job_poller.py never uploads a checkpoint for a cancelled job).
+  (job_poller.py never uploads a checkpoint for a cancelled job), and the
+  job's working directory (dataset fetched into it, partial output) is
+  removed here — spec section 5 requires it cleaned up on cancellation,
+  same as on completion/failure.
 """
 
 from __future__ import annotations
+
+import shutil
+from pathlib import Path
 
 from common.domain import job_state_machine
 from common.models import Job, JobStatus, utcnow
@@ -19,7 +26,7 @@ _CANCELLABLE_STATUSES = (JobStatus.QUEUED, JobStatus.INITIALIZING, JobStatus.TRA
 
 
 def process_cancellations(
-    job_repository: JobRepository, docker_client: DockerClient, now_fn=utcnow
+    job_repository: JobRepository, docker_client: DockerClient, workdir: str, now_fn=utcnow
 ) -> list[Job]:
     now = now_fn()
     candidates = job_repository.list_by_statuses(_CANCELLABLE_STATUSES)
@@ -31,6 +38,7 @@ def process_cancellations(
 
         if job.status in (JobStatus.INITIALIZING, JobStatus.TRAINING) and job.container_id:
             docker_client.kill(job.container_id)
+            shutil.rmtree(Path(workdir) / job.id, ignore_errors=True)
 
         updated = job_state_machine.transition(job, JobStatus.CANCELLED, now=now)
         job_repository.update(updated)

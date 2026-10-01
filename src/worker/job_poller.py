@@ -61,7 +61,7 @@ class JobPoller:
     def tick(self) -> Job | None:
         """Run one poll cycle. Returns the job that was newly started or
         failed-during-startup, if any."""
-        process_cancellations(self._jobs, self._docker, now_fn=self._now)
+        process_cancellations(self._jobs, self._docker, self._workdir, now_fn=self._now)
 
         if self._jobs.list_by_statuses(_ACTIVE_CONTAINER_STATUSES):
             return None  # a training container is already occupying the GPU
