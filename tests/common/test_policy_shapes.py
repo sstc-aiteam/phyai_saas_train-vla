@@ -24,14 +24,38 @@ WITH_VISUAL = {
     }
 }
 
+WITH_ENV_STATE = {
+    "features": {
+        "observation.state": {"shape": [14]},
+        "observation.environment_state": {"shape": [10]},
+        "action": {"shape": [7]},
+    }
+}
 
-def test_act_only_needs_state_and_action():
+
+def test_act_fails_without_visual_or_env_state_feature():
+    # Real lerobot's ACTConfig.validate_features() requires at least one
+    # image feature or "observation.environment_state" -- state+action
+    # alone isn't enough, even though the service's own required_features
+    # list doesn't mention either by name.
     result = check_policy_compatibility(STATE_ACTION_ONLY, PolicyType.ACT)
+    assert result.ok is False
+    assert "visual" in result.error
+    assert "observation.environment_state" in result.error
+
+
+def test_act_passes_with_visual_feature():
+    result = check_policy_compatibility(WITH_VISUAL, PolicyType.ACT)
+    assert result.ok is True
+
+
+def test_act_passes_with_env_state_feature_instead_of_visual():
+    result = check_policy_compatibility(WITH_ENV_STATE, PolicyType.ACT)
     assert result.ok is True
 
 
 def test_act_fails_without_action_feature():
-    info = {"features": {"observation.state": {"shape": [14]}}}
+    info = {"features": {"observation.state": {"shape": [14]}, "observation.environment_state": {"shape": [10]}}}
     result = check_policy_compatibility(info, PolicyType.ACT)
     assert result.ok is False
     assert "action" in result.error

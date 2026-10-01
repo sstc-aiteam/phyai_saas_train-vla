@@ -26,6 +26,7 @@ VALID_INFO_JSON = json.dumps(
     {
         "features": {
             "observation.state": {"shape": [14]},
+            "observation.environment_state": {"shape": [10]},
             "action": {"shape": [7]},
         }
     }

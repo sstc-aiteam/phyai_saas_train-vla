@@ -9,7 +9,10 @@ Usage:
 The output only needs to satisfy `common.domain.dataset_validation` (a
 meta/info.json file + something under data/) and
 `common.domain.policy_shapes` (observation.state + action, plus a visual
-feature for smolvla) — it is not a real, trainable dataset.
+feature for smolvla; act accepts either a visual feature or
+observation.environment_state, matching real lerobot's ACTConfig — this
+demo uses environment_state for act, since it has no video to include)
+— it is not a real, trainable dataset.
 """
 
 from __future__ import annotations
@@ -27,6 +30,8 @@ def build_info_json(policy: str) -> dict:
     }
     if policy == "smolvla":
         features["observation.images.top"] = {"shape": [3, 224, 224]}
+    else:
+        features["observation.environment_state"] = {"shape": [10]}
     return {"features": features}
 
 

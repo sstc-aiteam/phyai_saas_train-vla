@@ -21,12 +21,18 @@ from common.models import PolicyType
 class PolicyRequirement:
     required_features: tuple[str, ...]
     requires_visual_feature: bool
+    # ACT-specific: real lerobot's ACTConfig.validate_features() accepts either
+    # a visual feature *or* "observation.environment_state" (simulated-env
+    # proprioceptive state standing in for a camera) -- unlike SmolVLA, which
+    # strictly requires a visual feature. See ACTConfig's own docstring.
+    requires_visual_or_env_state: bool = False
 
 
 POLICY_REQUIREMENTS: dict[PolicyType, PolicyRequirement] = {
     PolicyType.ACT: PolicyRequirement(
         required_features=("observation.state", "action"),
         requires_visual_feature=False,
+        requires_visual_or_env_state=True,
     ),
     PolicyType.SMOLVLA: PolicyRequirement(
         required_features=("observation.state", "action"),
@@ -35,6 +41,11 @@ POLICY_REQUIREMENTS: dict[PolicyType, PolicyRequirement] = {
 }
 
 _VISUAL_FEATURE_PREFIXES = ("observation.image", "observation.images")
+_ENV_STATE_FEATURE = "observation.environment_state"
+
+
+def _has_visual_feature(features: dict) -> bool:
+    return any(feature_name.startswith(prefix) for feature_name in features for prefix in _VISUAL_FEATURE_PREFIXES)
 
 
 class InvalidInfoJsonError(Exception):
@@ -61,14 +72,16 @@ def check_policy_compatibility(info: dict, policy: PolicyType) -> ValidationResu
             )
 
     if requirement.requires_visual_feature:
-        has_visual = any(
-            feature_name.startswith(prefix)
-            for feature_name in features
-            for prefix in _VISUAL_FEATURE_PREFIXES
-        )
-        if not has_visual:
+        if not _has_visual_feature(features):
             return ValidationResult.failure(
                 f"Policy '{policy.value}' requires at least one visual observation feature"
+            )
+
+    if requirement.requires_visual_or_env_state:
+        if not _has_visual_feature(features) and _ENV_STATE_FEATURE not in features:
+            return ValidationResult.failure(
+                f"Policy '{policy.value}' requires at least one visual observation feature "
+                f"or the '{_ENV_STATE_FEATURE}' feature"
             )
 
     return ValidationResult.success()

@@ -74,7 +74,7 @@ tests/
 
 ```bash
 uv sync
-uv run pytest              # 207 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
+uv run pytest              # 209 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
                            # (+1 skipped: the docker/ entrypoint tests need
                            # the optional `lerobot` dependency, only present
                            # inside the training images, not this project's
@@ -244,15 +244,19 @@ already zips.
   (that path's plumbing — reading `progress.json`, checking exit codes — was
   already covered by the "What's genuinely tested" section above against
   the old stub, and the contract didn't change).
-- **Known gap surfaced by moving to real training**: this repo's own
-  dataset validation (`common/domain/policy_shapes.py`) doesn't require a
+- **Gap surfaced by moving to real training, now fixed**: this repo's own
+  dataset validation (`common/domain/policy_shapes.py`) didn't require a
   visual feature for ACT, but `lerobot`'s real `ACTConfig.validate_features()`
-  does (image *or* simulated env-state). A state-only dataset can pass this
-  service's upload validation and still fail at training time with a clear
-  `ValueError` — surfaced to the job as a generic "exited with code 1"
-  (`worker/job_completion.py` doesn't thread container stderr into
-  Firestore's `error_message`). Not fixed here; `policy_shapes.py` would
-  need to require a visual feature for ACT too.
+  requires a visual feature *or* `observation.environment_state` (confirmed
+  against lerobot 0.6.1's actual source, not just the docstring). A
+  state-only dataset could pass this service's upload validation and only
+  fail at training time with a generic "exited with code 1" (container
+  stderr still isn't threaded into Firestore's `error_message` —
+  `worker/job_completion.py` only reports the bare exit code, a separate,
+  still-open gap). `policy_shapes.py` now requires ACT datasets to have
+  either a visual feature or `observation.environment_state`, matching the
+  real contract; `scripts/make_demo_dataset_zip.py`'s ACT demo dataset was
+  updated to include `observation.environment_state` to stay valid.
 
 ## Scope and known gaps
 
