@@ -122,6 +122,17 @@ reCAPTCHA site was registered for `localhost` only, since no frontend
 domain exists yet; add the real domain in the reCAPTCHA admin console
 once the frontend is deployed.
 
+**CORS** (`LEROBOT_CORS_ALLOWED_ORIGINS`, comma-separated, defaults to
+just the Vite dev server `http://localhost:5173`): needed once a browser
+frontend calls this API from a different origin — add
+`--set-env-vars LEROBOT_CORS_ALLOWED_ORIGINS=https://your-real-frontend-origin`
+(comma-separate multiple origins) once the frontend has a real deployed
+URL, same update needed for the GCS bucket CORS policy below. The live
+Cloud Run service hasn't been redeployed with the CORS/cancel-409 backend
+fix yet as of this writing — needs a plain `gcloud run deploy --source .`
+redeploy (no env var changes needed for localhost-only dev) before the
+frontend can reach it even from `http://localhost:5173`.
+
 ## Worker host (systemd)
 
 1. Copy `worker.env.example` to `/etc/lerobot-worker/worker.env`, fill in real
@@ -198,6 +209,25 @@ with `gsutil lifecycle get` that the bucket's rule matches this file
 exactly. Actual deletions happen on GCS's own daily lifecycle sweep, which
 isn't something to wait around and verify here — the config being live is
 the checkable part.
+
+## GCS bucket CORS (needed for the browser-direct zip upload path)
+
+Spec section 3's zip upload goes straight from the browser to GCS via a
+signed PUT URL, not through the backend — without a bucket CORS policy,
+the browser blocks that PUT as cross-origin. `gcs-cors.json` allows
+`PUT`/`GET` from the frontend's dev origin.
+
+Apply with:
+```bash
+gsutil cors set gcs-cors.json gs://<your-bucket-name>
+gsutil cors get gs://<your-bucket-name>   # verify
+```
+
+**Deployed status**: applied to `gs://phyai-saas-train-vla-gs`, allowing
+`http://localhost:5173` (the Vite dev server) only so far — confirmed via
+`gsutil cors get`. **Update this** (add the real frontend origin to
+`gcs-cors.json`'s `origin` array and re-apply) once the frontend is
+deployed somewhere other than localhost, e.g. Firebase Hosting.
 
 ## Cloud Scheduler (spec section 4)
 

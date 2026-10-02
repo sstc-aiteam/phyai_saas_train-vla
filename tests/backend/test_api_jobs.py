@@ -1,4 +1,7 @@
+import dataclasses
 import json
+
+from common.models import JobStatus
 
 
 VALID_INFO_JSON = json.dumps(
@@ -91,6 +94,29 @@ def test_cancel_someone_elses_job_returns_403(client, auth_headers, fakes):
     headers_b = auth_headers("b@example.com")
     response = client.post(f"/jobs/{created['id']}/cancel", headers=headers_b)
     assert response.status_code == 403
+
+
+def test_cancelling_a_terminal_job_returns_409(client, auth_headers, fakes):
+    # cancel_requested merely flags a still-queued/running job for the
+    # worker to kill later -- it doesn't move it to CANCELLED synchronously
+    # (that's worker/cancel_watcher.py's job). To hit CancelNotAllowedError
+    # we need a job that's *actually* terminal already, which only the
+    # worker (or, here, directly poking the fake repo) can produce.
+    headers = auth_headers()
+    fakes.hf_hub_client.add_repo(
+        "org/dataset",
+        {"meta/info.json": VALID_INFO_JSON, "data/x.parquet": b"x"},
+    )
+    created = client.post(
+        "/uploads/hf-dataset",
+        json={"repo_id": "org/dataset", "policy": "act", "training_steps": 1000},
+        headers=headers,
+    ).json()
+    job = fakes.job_repository.get(created["id"])
+    fakes.job_repository.update(dataclasses.replace(job, status=JobStatus.COMPLETED))
+
+    response = client.post(f"/jobs/{created['id']}/cancel", headers=headers)
+    assert response.status_code == 409
 
 
 def test_download_url_before_completion_returns_409(client, auth_headers, fakes):

@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # dev-storage URLs should point back to. Override if serving on a
     # different host/port than the plain `uvicorn` default.
     dev_storage_base_url: str = "http://localhost:8000"
+    # Comma-separated browser origins allowed to call this API (the frontend
+    # is served from a different origin than this API, e.g. Firebase
+    # Hosting, so CORS is required). Defaults to the Vite dev server.
+    cors_allowed_origins: str = "http://localhost:5173"
 
 
 def get_settings() -> Settings:

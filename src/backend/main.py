@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.adapters.memory import InMemoryObjectStorage
@@ -26,6 +27,7 @@ from backend.services.upload_service import (
     UploadNotFoundError,
     UploadValidationError,
 )
+from common.domain.job_state_machine import CancelNotAllowedError
 
 # Maps domain/service exceptions to HTTP status codes. Kept as one table so
 # every use case gets consistent error handling without each endpoint
@@ -44,6 +46,9 @@ _EXCEPTION_STATUS_CODES: dict[type[Exception], int] = {
     UploadValidationError: 400,
     UploadNotFoundError: 404,
     HFDatasetNotFoundError: 404,
+    # Cancelling a job already in a terminal state (completed/failed/
+    # cancelled) -- a state conflict, same as DownloadNotAvailableError.
+    CancelNotAllowedError: 409,
 }
 
 
@@ -92,6 +97,16 @@ def build_app(settings: Settings | None = None, deps: Dependencies | None = None
     settings = settings or get_settings()
     app = FastAPI(title="LeRobot Training Service")
     app.state.deps = deps or _build_default_dependencies(settings)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[origin.strip() for origin in settings.cors_allowed_origins.split(",") if origin.strip()],
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type"],
+        # Auth is a Bearer token in a header, not a cookie, so no need for
+        # credentialed CORS -- keeps the origin list a plain allowlist.
+        allow_credentials=False,
+    )
 
     app.include_router(auth.router)
     app.include_router(uploads.router)

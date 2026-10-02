@@ -74,7 +74,7 @@ tests/
 
 ```bash
 uv sync
-uv run pytest              # 212 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
+uv run pytest              # 215 tests, all using fakes/tmp_path — no GCP/Docker/GPU needed
                            # (+1 skipped: the docker/ entrypoint tests need
                            # the optional `lerobot` dependency, only present
                            # inside the training images, not this project's
@@ -265,7 +265,16 @@ already zips.
 
 Deliberately left out of this pass (see the spec for what they should do):
 
-- **React frontend** — not built.
+- **React frontend** — in progress (see `frontend/`). Before it could do
+  anything, two infra gaps surfaced by actually building it had to be
+  fixed: the backend had no CORS middleware at all (would have blocked
+  every browser request), and the GCS bucket had no CORS policy (would
+  have blocked the spec's browser-direct zip upload to a signed URL).
+  Also fixed while touching this code path: cancelling an already-terminal
+  job raised an unhandled exception (plain 500) instead of a clean 409 —
+  `CancelNotAllowedError` wasn't registered in `main.py`'s exception-to-status
+  table. See `deploy/README.md`'s new "GCS bucket CORS" section for the
+  bucket-side config and its localhost-only deployed status.
 - HF OAuth login and reCAPTCHA verification are real code, verified only
   by review — neither can be exercised without a browser (no frontend
   exists to produce a real OAuth code or reCAPTCHA token).
