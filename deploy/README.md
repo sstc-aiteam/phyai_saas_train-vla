@@ -87,6 +87,17 @@ that service account.
 `us-central1` deploy; the old service, its Cloud Build staging bucket
 `run-sources-sstc-aiteam-us-central1`, and its `cloud-run-source-deploy`
 Artifact Registry repo were all deleted rather than left orphaned).
+Redeployed (`lerobot-backend-00004-zmp`) to pick up the ACT
+visual-feature-or-`observation.environment_state` validation fix
+(`common/domain/policy_shapes.py`, commit `d3987bb`) — the only one of
+three recent bug fixes that touches backend code (the disk-leak-on-cancel
+and container-log-surfacing fixes are worker-only and live on the GPU
+host instead, not Cloud Run). A bare `gcloud run deploy --source .` with
+no `--set-env-vars`/`--set-secrets` carried forward the existing
+Secret-Manager-backed env vars unchanged — confirmed on the new revision
+(all three secrets still `valueFrom.secretKeyRef`, not plain values) and
+re-verified end-to-end (`/docs` → 200, `/internal/check-timeouts` with
+the real secret → 200).
 `LEROBOT_JWT_SECRET` and `LEROBOT_SCHEDULER_SHARED_SECRET` are now sourced
 from Secret Manager (secrets `lerobot-jwt-secret` and
 `lerobot-scheduler-secret`, both `automatic` replication) via
