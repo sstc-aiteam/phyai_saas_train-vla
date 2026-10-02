@@ -128,10 +128,12 @@ frontend calls this API from a different origin — add
 `--set-env-vars LEROBOT_CORS_ALLOWED_ORIGINS=https://your-real-frontend-origin`
 (comma-separate multiple origins) once the frontend has a real deployed
 URL, same update needed for the GCS bucket CORS policy below. The live
-Cloud Run service hasn't been redeployed with the CORS/cancel-409 backend
-fix yet as of this writing — needs a plain `gcloud run deploy --source .`
-redeploy (no env var changes needed for localhost-only dev) before the
-frontend can reach it even from `http://localhost:5173`.
+Cloud Run service hasn't been redeployed with the CORS/cancel-409/
+password-change-401/CORS-PUT fixes yet as of this writing — needs a
+plain `gcloud run deploy --source .` redeploy (no env var changes needed
+for localhost-only dev) before the frontend can reach it even from
+`http://localhost:5173`. The frontend itself has only been run against a
+local backend (`uv run uvicorn`) so far, not this deployed one.
 
 ## Worker host (systemd)
 

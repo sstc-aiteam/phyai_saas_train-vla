@@ -4,9 +4,12 @@ Backend API + GPU worker for the service described in
 [`lerobot-training-service-spec.md`](lerobot-training-service-spec.md).
 
 This implementation covers the **backend API (FastAPI), the GPU worker's
-core orchestration logic, and real ACT/SmolVLA training** (see
-[Real ACT/SmolVLA training](#real-actsmolvla-training)). The React frontend
-is out of scope for this pass — see
+core orchestration logic, real ACT/SmolVLA training** (see
+[Real ACT/SmolVLA training](#real-actsmolvla-training)), **and a React
+frontend** (`frontend/`, see [Frontend](#frontend)) covering the golden
+path — email/password auth, HF Hub or zip dataset submission, job
+status/cancel/download. HF OAuth login, the full set of edge cases, and
+deploying the frontend to Firebase Hosting are not yet done — see
 [Scope and known gaps](#scope-and-known-gaps).
 
 ## Architecture
@@ -20,6 +23,14 @@ test fake for each.
 ```
 Dockerfile              # packages backend.main:app for Cloud Run (spec section 2)
 .dockerignore
+frontend/                # React + Vite + TypeScript SPA (see "Frontend" below)
+  src/
+    api/                 # ApiClient interface + fetch-based implementation + types
+    auth/                # token/email storage, the one 401 -> logout cross-cutting rule
+    pages/, components/, hooks/
+  tests/                 # Vitest + React Testing Library, mirrors src/; hand-written
+                          # FakeApiClient instead of mocking fetch (same fakes-over-mocks
+                          # convention as tests/backend/fakes/*)
 src/
   common/
     models.py         # User, Job, JobStatus, PolicyType, SourceType, Progress
@@ -126,6 +137,49 @@ See [`deploy/README.md`](deploy/README.md) for the one-time Firestore
 database + composite-index + IAM setup this needs first. It writes real
 data and does not clean up after itself — see the script's own printed
 reminder.
+
+## Frontend
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local   # fill in VITE_RECAPTCHA_SITE_KEY for a working register page
+npm run test                 # 28 tests, Vitest + React Testing Library + a hand-written FakeApiClient
+npm run dev                  # :5173 by default; backend's CORS defaults to allowing exactly this origin
+```
+
+Covers the golden path only: register/login (email+password), change
+password, submit a job (HF Hub repo id, or a zip uploaded directly to a
+signed URL — never through the backend), poll job status (queue
+position, progress, cancel, download). HF OAuth login is not built (no
+real OAuth app configured on the backend yet — see
+[Scope and known gaps](#scope-and-known-gaps)).
+
+**Verified by actually running it in a browser** (Playwright-driven
+Chromium against the local backend + Vite dev server, both with fake
+adapters), not just the unit test suite — this caught two real bugs the
+component tests' necessarily well-behaved fakes couldn't:
+- `useRecaptcha`'s `execute()` only guarded against `grecaptcha.execute()`
+  *rejecting*. The real Google script, given an invalid/missing site key,
+  throws **synchronously** from inside `grecaptcha.ready()`'s callback —
+  a throw that never reaches a `.then`/`.catch` chain, since it happens
+  outside this function's own call stack. Left the register page stuck
+  forever on submit with no error shown. Fixed with a try/catch around
+  that callback (plus a 10s timeout as a second line of defense, in case
+  `ready()` itself never calls back at all).
+- `NewJobPage`'s HF-repo-id and zip-file inputs occupied the same JSX
+  slot behind a ternary with no `key` — React reused the same `<input>`
+  DOM node across the type change (`text` → `file`) instead of mounting
+  a fresh one, which broke the file input's value tracking (a "component
+  changing a controlled input to be uncontrolled" warning, and
+  `userEvent.upload` in jsdom silently stopped registering). Fixed by
+  giving each branch a distinct `key`.
+
+Also surfaced two real **backend/infra gaps that had nothing to do with
+the frontend's own code** (see their commits for the fixes): the backend
+had no CORS middleware at all, and the GCS bucket had no CORS policy —
+both would have blocked every request from a browser on a different
+origin, including the spec's browser-direct zip upload.
 
 ## What's genuinely tested vs. what's a thin wire-up
 
@@ -265,19 +319,32 @@ already zips.
 
 Deliberately left out of this pass (see the spec for what they should do):
 
-- **React frontend** — in progress (see `frontend/`). Before it could do
-  anything, two infra gaps surfaced by actually building it had to be
-  fixed: the backend had no CORS middleware at all (would have blocked
-  every browser request), and the GCS bucket had no CORS policy (would
-  have blocked the spec's browser-direct zip upload to a signed URL).
-  Also fixed while touching this code path: cancelling an already-terminal
-  job raised an unhandled exception (plain 500) instead of a clean 409 —
-  `CancelNotAllowedError` wasn't registered in `main.py`'s exception-to-status
-  table. See `deploy/README.md`'s new "GCS bucket CORS" section for the
-  bucket-side config and its localhost-only deployed status.
-- HF OAuth login and reCAPTCHA verification are real code, verified only
-  by review — neither can be exercised without a browser (no frontend
-  exists to produce a real OAuth code or reCAPTCHA token).
+- **React frontend golden path is built** (see `frontend/` and
+  [Frontend](#frontend) above) — register/login, submit a job (HF Hub or
+  zip upload), poll/cancel/download. **Not built**: HF OAuth login (no
+  real OAuth app configured on the backend yet, so there'd be nothing
+  real to log into), and deploying it anywhere (Firebase Hosting per the
+  spec, or otherwise) — verified so far only against a local backend via
+  `npm run dev`. Building it surfaced two infra gaps that would have
+  blocked it entirely: the backend had no CORS middleware at all (every
+  browser request would be blocked cross-origin), and the GCS bucket had
+  no CORS policy (would block the spec's browser-direct zip upload to a
+  signed URL) — both fixed, see `deploy/README.md`'s "GCS bucket CORS"
+  section for the bucket-side config and its localhost-only deployed
+  status (needs the real frontend origin added once it's deployed
+  somewhere). Also fixed along the way: cancelling an already-terminal
+  job returned a bare 500 instead of a clean 409
+  (`CancelNotAllowedError` wasn't in `main.py`'s exception-to-status
+  table), and changing a password with the wrong old password returned
+  401 — indistinguishable from an expired session token, which would
+  have made a correctly-behaving frontend wrongly log the user out for a
+  simple typo (`WrongOldPasswordError`, now 400).
+- reCAPTCHA v3 verification is live end-to-end against the real Google
+  API (see the deployed-backend section below) and the register page now
+  exists to produce a real token — but needs `VITE_RECAPTCHA_SITE_KEY`
+  set to actually work; nothing has exercised it with a real site key
+  yet. HF OAuth login (backend side) is real code, verified only by
+  review — no real OAuth app exists to produce a real code.
 - **Backend deployed to Cloud Run**: live at
   `https://lerobot-backend-526282644766.asia-east1.run.app` (project
   `sstc-aiteam`, region `asia-east1` — migrated from an initial
