@@ -139,7 +139,7 @@ class UploadService:
         training_steps: int,
     ):
         if not self._hf_hub.repo_exists(repo_id):
-            raise HFDatasetNotFoundError(repo_id)
+            raise HFDatasetNotFoundError(f"Hugging Face dataset repo not found: {repo_id}")
 
         entry_names = self._hf_hub.list_repo_files(repo_id)
         structure_result = check_lerobot_structure(entry_names)

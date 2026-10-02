@@ -13,6 +13,7 @@ from backend.services.auth_service import (
     CaptchaFailedError,
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
+    WrongOldPasswordError,
 )
 from backend.services.job_service import (
     DownloadNotAvailableError,
@@ -37,6 +38,10 @@ _EXCEPTION_STATUS_CODES: dict[type[Exception], int] = {
     EmailAlreadyRegisteredError: 409,
     InvalidCredentialsError: 401,
     InvalidTokenError: 401,
+    # Not 401: this request is already authenticated (valid Bearer token) --
+    # a wrong *old* password is bad input, not an invalid session. See
+    # WrongOldPasswordError's docstring in auth_service.py.
+    WrongOldPasswordError: 400,
     UserNotFoundError: 404,
     JobNotFoundError: 404,
     NotJobOwnerError: 403,
@@ -101,7 +106,11 @@ def build_app(settings: Settings | None = None, deps: Dependencies | None = None
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[origin.strip() for origin in settings.cors_allowed_origins.split(",") if origin.strip()],
-        allow_methods=["GET", "POST"],
+        # PUT is only hit on this API in dev mode (dev_storage.py's local
+        # stand-in for a GCS signed URL) -- the real GCS signed URL in
+        # production is a different origin, governed by the bucket's own
+        # CORS policy (deploy/gcs-cors.json), not this one.
+        allow_methods=["GET", "POST", "PUT"],
         allow_headers=["Authorization", "Content-Type"],
         # Auth is a Bearer token in a header, not a cookie, so no need for
         # credentialed CORS -- keeps the origin list a plain allowlist.

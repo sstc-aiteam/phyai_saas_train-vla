@@ -5,6 +5,7 @@ from backend.services.auth_service import (
     CaptchaFailedError,
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
+    WrongOldPasswordError,
 )
 from common.ports.captcha_verifier import CaptchaResult
 from common.ports.hf_oauth_client import HFOAuthUser
@@ -73,7 +74,7 @@ def test_change_password_then_login_with_new_password(service):
 
 def test_change_password_rejects_wrong_old_password(service):
     user = service.register_with_email("a@example.com", "password123", "captcha-token")
-    with pytest.raises(InvalidCredentialsError):
+    with pytest.raises(WrongOldPasswordError):
         service.change_password(user.id, "wrong-old-password", "new-password456")
 
 

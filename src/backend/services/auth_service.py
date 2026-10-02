@@ -32,6 +32,10 @@ class InvalidCredentialsError(Exception):
     pass
 
 
+class WrongOldPasswordError(Exception):
+    pass
+
+
 class AuthService:
     def __init__(
         self,
@@ -72,11 +76,17 @@ class AuthService:
         return user
 
     def change_password(self, user_id: str, old_password: str, new_password: str) -> User:
+        # Deliberately a different exception than login's InvalidCredentialsError
+        # (also 401): this caller is already authenticated via a valid Bearer
+        # token, so a wrong old password here means "bad input," not "your
+        # session is invalid" -- the two must map to different HTTP status
+        # codes, or a frontend can't tell "you mistyped" from "log in again"
+        # without string-matching the error message.
         user = self._users.get(user_id)
         if user is None or user.password_hash is None:
-            raise InvalidCredentialsError("User not found or has no password set")
+            raise WrongOldPasswordError("User not found or has no password set")
         if not verify_password(old_password, user.password_hash):
-            raise InvalidCredentialsError("Old password is incorrect")
+            raise WrongOldPasswordError("Old password is incorrect")
 
         updated = dataclasses.replace(user, password_hash=hash_password(new_password))
         self._users.update(updated)

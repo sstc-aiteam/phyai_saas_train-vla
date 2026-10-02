@@ -39,3 +39,17 @@ def test_change_password_flow(client, auth_headers):
 
     relogin = client.post("/auth/login", json={"email": "a@example.com", "password": "new-password456"})
     assert relogin.status_code == 200
+
+
+def test_change_password_wrong_old_password_returns_400_not_401(client, auth_headers):
+    # Must be distinct from the 401 an invalid/expired Bearer token gets --
+    # this request *is* authenticated, so a frontend must be able to tell
+    # "you mistyped your old password" apart from "your session died"
+    # without logging the user out.
+    headers = auth_headers()
+    response = client.post(
+        "/auth/change-password",
+        json={"old_password": "totally-wrong", "new_password": "new-password456"},
+        headers=headers,
+    )
+    assert response.status_code == 400
