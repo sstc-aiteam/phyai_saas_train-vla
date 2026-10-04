@@ -202,15 +202,14 @@ into a frontend rebuild, redeployed to Firebase Hosting. Re-verified
 directly against Google's siteverify with a real, freshly-captured
 token: `invalid-keys` is gone.
 
-**What's still unverified, and why**: that same real-browser check
-returned a *different* error, `"browser-error"` — this is reCAPTCHA's
-own bot-detection flagging the headless, sandboxed Chromium this was
-tested with (no display server available here, and no interest in
-trying to defeat reCAPTCHA's detection to get around that — that's
-exactly the thing it's supposed to catch). So the key pairing is
-confirmed correct at the API level, but an actual successful register
-submission through a real human browser session on the live site has
-not been observed directly. That final check needs a real browser.
+A headless/sandboxed Chromium check against the same keys returned a
+*different* error, `"browser-error"` — reCAPTCHA's own bot-detection
+flagging the lack of a real display server here (not a key problem, and
+not worth trying to defeat — that's exactly the thing it's supposed to
+catch). **Confirmed working**: a real person registered successfully
+through a real browser at `https://sstc-aiteam.web.app/register`. The
+golden path's register step is now fully verified on the live
+deployment, not just at the API level.
 
 ## What's genuinely tested vs. what's a thin wire-up
 
@@ -374,15 +373,12 @@ Deliberately left out of this pass (see the spec for what they should do):
   image, which still predated this code the first time, a mistake caught
   by the CORS preflight check still failing (405) right after what
   looked like a successful config update.
-- **reCAPTCHA v3 key mismatch is fixed, but register's real-browser path
-  is still unverified**: the original secret/site key mismatch
-  (`"invalid-keys"` from Google's own siteverify) is resolved — see
-  "Deployed to Firebase Hosting" above. What's left is specifically
-  this environment's lack of a real browser: headless Chromium here gets
-  flagged by reCAPTCHA's own bot detection (`"browser-error"`), which is
-  working as intended, not a bug to route around. Register needs a real
-  human browser session to fully confirm. HF OAuth login (backend side)
-  is real code, verified only by review — no real OAuth app exists to
+- **reCAPTCHA v3 is fully working now**: the secret/site key mismatch
+  (`"invalid-keys"` from Google's own siteverify) is fixed, and a real
+  person has registered successfully through a real browser at
+  `https://sstc-aiteam.web.app/register` — see "Deployed to Firebase
+  Hosting" above. HF OAuth login (backend side) is real code, verified
+  only by review — no real OAuth app exists to
   produce a real code.
 - **Backend deployed to Cloud Run**: live at
   `https://lerobot-backend-526282644766.asia-east1.run.app` (project

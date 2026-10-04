@@ -307,14 +307,13 @@ forced Cloud Run revision to actually pick it up. Re-verified directly
 against Google's siteverify with a real, freshly-captured token:
 `invalid-keys` is gone.
 
-**Still not confirmed**: an actual successful register through a real
-browser on the live site. The same real-token check returned
-`"browser-error"` instead — reCAPTCHA's own detection flagging the
-headless, sandboxed Chromium used to test this (no display server
-available in this environment, and deliberately not worth trying to
-defeat — that detection is reCAPTCHA doing its job, not a bug). A real
-human browser session should not hit this; that's the one remaining
-check someone with an actual browser needs to do.
+A headless/sandboxed Chromium check against the same keys returned a
+*different* error, `"browser-error"` — reCAPTCHA's own bot detection
+flagging the lack of a real display server here, not a key problem
+(deliberately not worth trying to defeat). **Confirmed**: a real person
+registered successfully through a real browser at
+`https://sstc-aiteam.web.app/register`. Register, and the golden path up
+through it, is fully verified against this live deployment.
 
 ## Cloud Scheduler (spec section 4)
 
