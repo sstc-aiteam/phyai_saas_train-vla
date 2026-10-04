@@ -1,6 +1,6 @@
 [
   {
-    "origin": ["http://localhost:5173"],
+    "origin": ["http://localhost:5173", "https://sstc-aiteam.web.app", "https://sstc-aiteam.firebaseapp.com"],
     "method": ["PUT", "GET"],
     "responseHeader": ["Content-Type"],
     "maxAgeSeconds": 3600

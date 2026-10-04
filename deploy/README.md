@@ -113,27 +113,46 @@ above.
 
 `LEROBOT_RECAPTCHA_SECRET_KEY` was added the same way once a real
 reCAPTCHA v3 secret key existed (secret `lerobot-recaptcha-secret`,
-`secretAccessor` granted to the runtime SA on that secret only). Verified
-by calling `POST /auth/register` on the live service with a deliberately
-bogus token: got a clean `400 {"detail":"reCAPTCHA verification
-failed"}` from Google's real siteverify API — proves the secret key itself
-is valid and reachable, not just that the wiring didn't crash. The
-reCAPTCHA site was registered for `localhost` only, since no frontend
-domain exists yet; add the real domain in the reCAPTCHA admin console
-once the frontend is deployed.
+`secretAccessor` granted to the runtime SA on that secret only). Calling
+`POST /auth/register` with a deliberately bogus token got a clean `400
+{"detail":"reCAPTCHA verification failed"}` from Google's real siteverify
+API — this only proved the endpoint was *reachable*, though, not that the
+secret key itself is valid (our own API collapses every siteverify
+failure reason into the same generic 400, so a bogus-token rejection and
+an actually-invalid-secret-key rejection look identical from here). That
+distinction turned out to matter: see "Frontend (Firebase Hosting)"
+below — this secret key does **not** pair with the site key the deployed
+frontend currently uses (confirmed via a direct, unmediated call to
+Google's siteverify, which returned `"error-codes": ["invalid-keys"]`
+for a token the frontend legitimately produced).
 
 **CORS** (`LEROBOT_CORS_ALLOWED_ORIGINS`, comma-separated, defaults to
 just the Vite dev server `http://localhost:5173`): needed once a browser
-frontend calls this API from a different origin — add
-`--set-env-vars LEROBOT_CORS_ALLOWED_ORIGINS=https://your-real-frontend-origin`
-(comma-separate multiple origins) once the frontend has a real deployed
-URL, same update needed for the GCS bucket CORS policy below. The live
-Cloud Run service hasn't been redeployed with the CORS/cancel-409/
-password-change-401/CORS-PUT fixes yet as of this writing — needs a
-plain `gcloud run deploy --source .` redeploy (no env var changes needed
-for localhost-only dev) before the frontend can reach it even from
-`http://localhost:5173`. The frontend itself has only been run against a
-local backend (`uv run uvicorn`) so far, not this deployed one.
+frontend calls this API from a different origin.
+
+**Deployed status**: the live service has been rebuilt from source
+(`gcloud run deploy --source .`, not just an env-var patch — see the
+gotcha below) and now carries the CORS/cancel-409/password-change-401/
+CORS-PUT fixes. `LEROBOT_CORS_ALLOWED_ORIGINS` is set to
+`http://localhost:5173,https://sstc-aiteam.web.app,https://sstc-aiteam.firebaseapp.com`
+(gcloud's `--update-env-vars` uses `,` as its own pair-delimiter, so a
+comma-separated *value* needs the `^;^KEY=val,val` custom-delimiter
+escape — plain `KEY=val,val` silently gets misparsed as two separate
+env vars). Confirmed via `curl -X OPTIONS` preflight: both
+`http://localhost:5173` and `https://sstc-aiteam.web.app` get back a
+matching `access-control-allow-origin`; an arbitrary disallowed origin
+gets back none (400, no CORS headers).
+
+**Gotcha hit while setting this up**: `gcloud run services update
+--update-env-vars` only patches configuration on the *existing* container
+image — it does **not** rebuild from source. Updating just the env var
+first (to test the Firebase origins) looked like it succeeded, but the
+image it patched predated the CORS middleware code entirely (that commit
+landed after the prior `--source .` deploy), so every CORS preflight
+still came back a bare `405` regardless of origin. Caught by actually
+re-running the preflight check after the "successful" update, not by
+trusting the deploy output. Fixed by a full `gcloud run deploy --source .`
+rebuild instead.
 
 ## Worker host (systemd)
 
@@ -226,10 +245,55 @@ gsutil cors get gs://<your-bucket-name>   # verify
 ```
 
 **Deployed status**: applied to `gs://phyai-saas-train-vla-gs`, allowing
-`http://localhost:5173` (the Vite dev server) only so far — confirmed via
-`gsutil cors get`. **Update this** (add the real frontend origin to
-`gcs-cors.json`'s `origin` array and re-apply) once the frontend is
-deployed somewhere other than localhost, e.g. Firebase Hosting.
+`http://localhost:5173`, `https://sstc-aiteam.web.app`, and
+`https://sstc-aiteam.firebaseapp.com` — confirmed via `gsutil cors get`.
+
+## Frontend (Firebase Hosting)
+
+Deployed per the spec's "部署於 Firebase Hosting" — see the main
+README's [Frontend](../README.md#frontend) section for what the app
+covers and what running it locally looks like.
+
+```bash
+npm install -g firebase-tools   # or any method; not a project dependency
+firebase projects:addfirebase YOUR_PROJECT_ID   # one-time, needs roles/firebase.admin
+cd frontend
+npm run build                    # tsc -b && vite build -> dist/
+firebase deploy --only hosting --project YOUR_PROJECT_ID
+```
+
+`.firebaserc` (committed) pins the default project; `firebase.json`
+(committed) sets `"public": "dist"` and a catch-all rewrite to
+`/index.html` — without that rewrite, a direct load or refresh of any
+client-side route (e.g. `/jobs/new`) 404s, since there's no actual file
+at that path; only `/` itself would otherwise resolve.
+
+The production build needs `VITE_API_BASE_URL` pointed at the real
+deployed backend and a real `VITE_RECAPTCHA_SITE_KEY` — via
+`.env.production.local` (gitignored, like `.env.local`), since the
+committed `.env.example`/local dev default both point at
+`localhost:8000`, which obviously doesn't exist for anyone loading the
+deployed site.
+
+Same deploy-time-vs-runtime separation as everywhere else in this repo:
+`firebase projects:addfirebase` needed a one-off `roles/firebase.admin`
+grant on the deploying identity (this project had never been a Firebase
+project before — `firebase.googleapis.com` itself wasn't even enabled
+yet, a separate one-off `gcloud services enable` beforehand).
+
+**Deployed status**: live at `https://sstc-aiteam.web.app` (and its
+`https://sstc-aiteam.firebaseapp.com` alias). Confirmed: both domains
+serve the built app (`200`), the SPA rewrite works (a direct load of
+`/jobs/new` returns `200`, not `404`), and the backend is reachable
+end-to-end (CORS preflight succeeds from both domains against the real
+Cloud Run service, confirmed with `curl -X OPTIONS`). **Not confirmed**:
+the register flow itself, and therefore nothing past it — see the main
+README's "Deployed to Firebase Hosting" subsection for the reCAPTCHA
+secret/site key mismatch blocking it (Google's siteverify API itself
+returns `"invalid-keys"` for a token this build legitimately produced;
+not a code or deployment bug). Needs the correct matching key pair from
+the reCAPTCHA admin console before anything past register can be
+verified against this live deployment.
 
 ## Cloud Scheduler (spec section 4)
 

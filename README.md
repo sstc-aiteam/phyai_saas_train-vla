@@ -24,6 +24,7 @@ test fake for each.
 Dockerfile              # packages backend.main:app for Cloud Run (spec section 2)
 .dockerignore
 frontend/                # React + Vite + TypeScript SPA (see "Frontend" below)
+  firebase.json, .firebaserc  # Firebase Hosting config (SPA rewrite, deploy target)
   src/
     api/                 # ApiClient interface + fetch-based implementation + types
     auth/                # token/email storage, the one 401 -> logout cross-cutting rule
@@ -181,6 +182,26 @@ had no CORS middleware at all, and the GCS bucket had no CORS policy —
 both would have blocked every request from a browser on a different
 origin, including the spec's browser-direct zip upload.
 
+### Deployed to Firebase Hosting
+
+Live at `https://sstc-aiteam.web.app` (and its `https://sstc-aiteam.firebaseapp.com`
+alias), per the spec's "部署於 Firebase Hosting." See `deploy/README.md`'s
+"Frontend (Firebase Hosting)" section for the full deploy record — what's
+confirmed working (CORS from both domains, the SPA fallback rewrite so
+client-side routes survive a direct load/refresh, the backend reachable
+end-to-end) and the one thing that **isn't** working yet: register
+currently fails on the live site with a backend `400 reCAPTCHA
+verification failed`. Querying Google's siteverify API directly with the
+secret key confirmed why — `{"success": false, "error-codes":
+["invalid-keys"]}` — the reCAPTCHA *secret* key in Secret Manager and the
+*site* key baked into this frontend build are not a matched pair (from
+two different site registrations, most likely). Needs the correct
+matching pair from the reCAPTCHA admin console; not a code or deployment
+bug. Nothing past register has been verified against the live Firebase
+Hosting + Cloud Run pair as a result — only confirmed independently
+locally (this README's bullets above) and via infra-level checks (CORS
+preflight, GCS CORS, Cloud Run connectivity).
+
 ## What's genuinely tested vs. what's a thin wire-up
 
 - **Fully unit-tested**: everything under `common/domain/`, all backend
@@ -319,32 +340,42 @@ already zips.
 
 Deliberately left out of this pass (see the spec for what they should do):
 
-- **React frontend golden path is built** (see `frontend/` and
-  [Frontend](#frontend) above) — register/login, submit a job (HF Hub or
-  zip upload), poll/cancel/download. **Not built**: HF OAuth login (no
-  real OAuth app configured on the backend yet, so there'd be nothing
-  real to log into), and deploying it anywhere (Firebase Hosting per the
-  spec, or otherwise) — verified so far only against a local backend via
-  `npm run dev`. Building it surfaced two infra gaps that would have
-  blocked it entirely: the backend had no CORS middleware at all (every
-  browser request would be blocked cross-origin), and the GCS bucket had
-  no CORS policy (would block the spec's browser-direct zip upload to a
-  signed URL) — both fixed, see `deploy/README.md`'s "GCS bucket CORS"
-  section for the bucket-side config and its localhost-only deployed
-  status (needs the real frontend origin added once it's deployed
-  somewhere). Also fixed along the way: cancelling an already-terminal
-  job returned a bare 500 instead of a clean 409
-  (`CancelNotAllowedError` wasn't in `main.py`'s exception-to-status
-  table), and changing a password with the wrong old password returned
-  401 — indistinguishable from an expired session token, which would
-  have made a correctly-behaving frontend wrongly log the user out for a
-  simple typo (`WrongOldPasswordError`, now 400).
-- reCAPTCHA v3 verification is live end-to-end against the real Google
-  API (see the deployed-backend section below) and the register page now
-  exists to produce a real token — but needs `VITE_RECAPTCHA_SITE_KEY`
-  set to actually work; nothing has exercised it with a real site key
-  yet. HF OAuth login (backend side) is real code, verified only by
-  review — no real OAuth app exists to produce a real code.
+- **React frontend golden path is built and deployed to Firebase
+  Hosting** (see `frontend/` and [Frontend](#frontend) above, including
+  its "Deployed to Firebase Hosting" subsection) — register/login,
+  submit a job (HF Hub or zip upload), poll/cancel/download, live at
+  `https://sstc-aiteam.web.app`. **Not built**: HF OAuth login (no real
+  OAuth app configured on the backend yet, so there'd be nothing real to
+  log into). Building and deploying it surfaced several infra gaps, all
+  fixed: the backend had no CORS middleware at all (every browser
+  request would be blocked cross-origin) and the GCS bucket had no CORS
+  policy (would block the spec's browser-direct zip upload to a signed
+  URL) — both now allow `http://localhost:5173` and the two Firebase
+  Hosting domains, see `deploy/README.md`'s "GCS bucket CORS" section;
+  cancelling an already-terminal job returned a bare 500 instead of a
+  clean 409 (`CancelNotAllowedError` wasn't in `main.py`'s
+  exception-to-status table); changing a password with the wrong old
+  password returned 401 — indistinguishable from an expired session
+  token, which would have made a correctly-behaving frontend wrongly log
+  the user out for a simple typo (`WrongOldPasswordError`, now 400). All
+  of these required a full Cloud Run **rebuild from source**
+  (`gcloud run deploy --source .`), not just an env-var patch — a
+  `services update` only changes config on the *existing* container
+  image, which still predated this code the first time, a mistake caught
+  by the CORS preflight check still failing (405) right after what
+  looked like a successful config update.
+- **reCAPTCHA v3 is not actually working yet, despite being wired up on
+  both ends**: the backend's secret key (Secret Manager) and the
+  frontend's site key (baked into the Firebase Hosting build) are **not
+  a matched pair** — confirmed by querying Google's own siteverify API
+  directly with the secret key, which returned `{"success": false,
+  "error-codes": ["invalid-keys"]}` for a token the frontend legitimately
+  produced. Register fails on the live site as a result
+  (`400 reCAPTCHA verification failed`). This needs the correct matching
+  site+secret key pair from the reCAPTCHA admin console — not a code or
+  deployment bug, and not yet resolved. HF OAuth login (backend side) is
+  real code, verified only by review — no real OAuth app exists to
+  produce a real code.
 - **Backend deployed to Cloud Run**: live at
   `https://lerobot-backend-526282644766.asia-east1.run.app` (project
   `sstc-aiteam`, region `asia-east1` — migrated from an initial

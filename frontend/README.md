@@ -50,4 +50,15 @@ default `Settings.cors_allowed_origins` already includes
 - `tests/` mirrors `src/`'s structure.
 
 Not built yet: HF OAuth login (no real OAuth app configured on the
-backend), and deploying this anywhere (Firebase Hosting per the spec).
+backend).
+
+## Deploying
+
+Deployed to Firebase Hosting — `firebase.json`/`.firebaserc` are
+committed and already point at the right project. See
+`../deploy/README.md`'s "Frontend (Firebase Hosting)" section for the
+exact commands, the production env-file setup
+(`.env.production.local`, gitignored — `npm run build` needs the real
+backend URL and reCAPTCHA site key, not the local-dev defaults), and the
+current deployed status (including a known reCAPTCHA key-mismatch issue
+blocking register on the live site as of this writing).
