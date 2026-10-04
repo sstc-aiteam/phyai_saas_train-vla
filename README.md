@@ -186,21 +186,31 @@ origin, including the spec's browser-direct zip upload.
 
 Live at `https://sstc-aiteam.web.app` (and its `https://sstc-aiteam.firebaseapp.com`
 alias), per the spec's "部署於 Firebase Hosting." See `deploy/README.md`'s
-"Frontend (Firebase Hosting)" section for the full deploy record — what's
-confirmed working (CORS from both domains, the SPA fallback rewrite so
-client-side routes survive a direct load/refresh, the backend reachable
-end-to-end) and the one thing that **isn't** working yet: register
-currently fails on the live site with a backend `400 reCAPTCHA
-verification failed`. Querying Google's siteverify API directly with the
-secret key confirmed why — `{"success": false, "error-codes":
-["invalid-keys"]}` — the reCAPTCHA *secret* key in Secret Manager and the
-*site* key baked into this frontend build are not a matched pair (from
-two different site registrations, most likely). Needs the correct
-matching pair from the reCAPTCHA admin console; not a code or deployment
-bug. Nothing past register has been verified against the live Firebase
-Hosting + Cloud Run pair as a result — only confirmed independently
-locally (this README's bullets above) and via infra-level checks (CORS
-preflight, GCS CORS, Cloud Run connectivity).
+"Frontend (Firebase Hosting)" section for the full deploy record.
+
+**reCAPTCHA key mismatch found and fixed**: register initially failed on
+the live site with a backend `400 reCAPTCHA verification failed`.
+Querying Google's siteverify API directly with the secret key confirmed
+why — `{"success": false, "error-codes": ["invalid-keys"]}` — the
+secret key in Secret Manager and the site key baked into the frontend
+build weren't a matched pair (from two different site registrations).
+Fixed with the correct pair from the reCAPTCHA admin console: new secret
+key added as Secret Manager version 2 (forced a new Cloud Run revision
+so the running container actually picks it up — secrets are injected as
+env vars at container *startup*, not re-read live), new site key baked
+into a frontend rebuild, redeployed to Firebase Hosting. Re-verified
+directly against Google's siteverify with a real, freshly-captured
+token: `invalid-keys` is gone.
+
+**What's still unverified, and why**: that same real-browser check
+returned a *different* error, `"browser-error"` — this is reCAPTCHA's
+own bot-detection flagging the headless, sandboxed Chromium this was
+tested with (no display server available here, and no interest in
+trying to defeat reCAPTCHA's detection to get around that — that's
+exactly the thing it's supposed to catch). So the key pairing is
+confirmed correct at the API level, but an actual successful register
+submission through a real human browser session on the live site has
+not been observed directly. That final check needs a real browser.
 
 ## What's genuinely tested vs. what's a thin wire-up
 
@@ -364,17 +374,15 @@ Deliberately left out of this pass (see the spec for what they should do):
   image, which still predated this code the first time, a mistake caught
   by the CORS preflight check still failing (405) right after what
   looked like a successful config update.
-- **reCAPTCHA v3 is not actually working yet, despite being wired up on
-  both ends**: the backend's secret key (Secret Manager) and the
-  frontend's site key (baked into the Firebase Hosting build) are **not
-  a matched pair** — confirmed by querying Google's own siteverify API
-  directly with the secret key, which returned `{"success": false,
-  "error-codes": ["invalid-keys"]}` for a token the frontend legitimately
-  produced. Register fails on the live site as a result
-  (`400 reCAPTCHA verification failed`). This needs the correct matching
-  site+secret key pair from the reCAPTCHA admin console — not a code or
-  deployment bug, and not yet resolved. HF OAuth login (backend side) is
-  real code, verified only by review — no real OAuth app exists to
+- **reCAPTCHA v3 key mismatch is fixed, but register's real-browser path
+  is still unverified**: the original secret/site key mismatch
+  (`"invalid-keys"` from Google's own siteverify) is resolved — see
+  "Deployed to Firebase Hosting" above. What's left is specifically
+  this environment's lack of a real browser: headless Chromium here gets
+  flagged by reCAPTCHA's own bot detection (`"browser-error"`), which is
+  working as intended, not a bug to route around. Register needs a real
+  human browser session to fully confirm. HF OAuth login (backend side)
+  is real code, verified only by review — no real OAuth app exists to
   produce a real code.
 - **Backend deployed to Cloud Run**: live at
   `https://lerobot-backend-526282644766.asia-east1.run.app` (project

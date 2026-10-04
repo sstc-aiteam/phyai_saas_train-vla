@@ -120,11 +120,24 @@ API — this only proved the endpoint was *reachable*, though, not that the
 secret key itself is valid (our own API collapses every siteverify
 failure reason into the same generic 400, so a bogus-token rejection and
 an actually-invalid-secret-key rejection look identical from here). That
-distinction turned out to matter: see "Frontend (Firebase Hosting)"
-below — this secret key does **not** pair with the site key the deployed
-frontend currently uses (confirmed via a direct, unmediated call to
-Google's siteverify, which returned `"error-codes": ["invalid-keys"]`
-for a token the frontend legitimately produced).
+distinction turned out to matter: that first secret key did **not** pair
+with the site key the frontend was using (confirmed via a direct,
+unmediated call to Google's siteverify, which returned `"error-codes":
+["invalid-keys"]` for a token the frontend legitimately produced).
+
+**Fixed**: a correctly-matched site+secret key pair was obtained from the
+reCAPTCHA admin console. The secret was added as **version 2** of
+`lerobot-recaptcha-secret` (`gcloud secrets versions add`, not
+overwritten in place — versions are immutable, and a secret's `:latest`
+alias just points at whichever is newest). Cloud Run injects secrets as
+plain environment variables at container *startup* — it does not
+re-read `:latest` for already-running instances — so a secret version
+bump alone does nothing until something forces a new revision: re-ran
+the same `--update-secrets` mapping (unchanged) to force exactly that.
+Re-verified directly against Google's siteverify with a freshly
+captured, real token: `invalid-keys` is gone. See "Frontend (Firebase
+Hosting)" below for the one thing this *didn't* resolve (a
+headless-browser detection error, unrelated to the key pairing).
 
 **CORS** (`LEROBOT_CORS_ALLOWED_ORIGINS`, comma-separated, defaults to
 just the Vite dev server `http://localhost:5173`): needed once a browser
@@ -286,14 +299,22 @@ yet, a separate one-off `gcloud services enable` beforehand).
 serve the built app (`200`), the SPA rewrite works (a direct load of
 `/jobs/new` returns `200`, not `404`), and the backend is reachable
 end-to-end (CORS preflight succeeds from both domains against the real
-Cloud Run service, confirmed with `curl -X OPTIONS`). **Not confirmed**:
-the register flow itself, and therefore nothing past it — see the main
-README's "Deployed to Firebase Hosting" subsection for the reCAPTCHA
-secret/site key mismatch blocking it (Google's siteverify API itself
-returns `"invalid-keys"` for a token this build legitimately produced;
-not a code or deployment bug). Needs the correct matching key pair from
-the reCAPTCHA admin console before anything past register can be
-verified against this live deployment.
+Cloud Run service, confirmed with `curl -X OPTIONS`). The reCAPTCHA
+secret/site key mismatch that originally blocked register
+(`"invalid-keys"`) is fixed — rebuilt and redeployed with the correct
+site key, backend's secret bumped to Secret Manager version 2 with a
+forced Cloud Run revision to actually pick it up. Re-verified directly
+against Google's siteverify with a real, freshly-captured token:
+`invalid-keys` is gone.
+
+**Still not confirmed**: an actual successful register through a real
+browser on the live site. The same real-token check returned
+`"browser-error"` instead — reCAPTCHA's own detection flagging the
+headless, sandboxed Chromium used to test this (no display server
+available in this environment, and deliberately not worth trying to
+defeat — that detection is reCAPTCHA doing its job, not a bug). A real
+human browser session should not hit this; that's the one remaining
+check someone with an actual browser needs to do.
 
 ## Cloud Scheduler (spec section 4)
 
